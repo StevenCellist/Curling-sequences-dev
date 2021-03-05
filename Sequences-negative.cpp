@@ -13,14 +13,14 @@ std::vector<int> Tail = {};
 std::vector<int> Periods = {};
 std::vector<int> Generator = {};
 std::vector<int> Max_tail_lengths = {};
-std::vector<std::vector<int>> Generators_memory = {};
+std::map<int, std::vector<int>> Generators_memory = {};
 std::vector<std::vector<int>> Best_generators = {};
 std::set<int> Change_indices = {};
 std::map<int, std::set<int>> Dict = {};
+std::map<int, std::set<int>> Dict_new = {}; 
 std::map<int, std::map<int, std::set<int>>> Dicts_memory = {};
 
 std::vector<int> seq_new = {};
-std::map<int, std::set<int>> Dict_new = {};
 
 void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1, period = 0
     int l = seq->size();
@@ -106,8 +106,7 @@ void up() {
                 Periods.pop_back();
                 Generator = Generators_memory[Periods.size()];
                 Dict = Dicts_memory[Periods.size()];
-                auto it = Generators_memory.begin();
-                it->erase(it->begin() + Periods.size());
+                Generators_memory.erase(Periods.size());
                 Dicts_memory.erase(Periods.size());
             }
         }
@@ -163,9 +162,9 @@ void append() {
         temp.insert(temp.end(), Generator.begin(), Generator.end() - len);
         Best_generators.back() = temp;
     }
-    if (Max_tail_lengths.back() < Tail.size()) {
-        Max_tail_lengths.back() = Tail.size();
-        Best_generators.back() = std::vector<int>(Generator.begin(), Generator.end() - len);
+    if (Max_tail_lengths[len - 1] < Tail.size()) {
+        Max_tail_lengths[len - 1] = Tail.size();
+        Best_generators[len - 1] = std::vector<int>(Generator.end() - len, Generator.end());
     }
 }
 
@@ -208,7 +207,7 @@ bool test_2() {
     std::vector<int> temp_period = Periods;
     temp_period.push_back(candidateperiod);
     int curl = 1, period = 0;
-    for (int i = 0; i <= length + l; ++i) {
+    for (int i = 0; i <= l - length; ++i) {
         std::vector<int> temp = std::vector<int>(seq_new.begin(), seq_new.begin() + length + i);
         curl = 1, period = 0;
         krul(&temp, &curl, &period);
@@ -239,7 +238,7 @@ void backtracking(int k1, int p1, int k2, int p2) {
         Generator.push_back(-i);
         Dict[-i].insert(i);
         Max_tail_lengths.push_back(0);
-        Best_generators.push_back({ 0 });
+        Best_generators.push_back({});
     }
     std::vector<int> seq = Generator;
     seq.insert(seq.end(), Tail.begin(), Tail.end());
@@ -256,7 +255,7 @@ void backtracking(int k1, int p1, int k2, int p2) {
             std::cout << i + 1 << ": " << record << ", [";
             for (int x : Best_generators[i])
                 std::cout << x << ", ";
-            std::cout << std::endl;
+            std::cout << "]" << std::endl;
         }
     }
 }
