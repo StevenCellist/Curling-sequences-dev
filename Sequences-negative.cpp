@@ -3,8 +3,11 @@
 
 #include <iostream>
 #include <vector>
+#include <chrono>
 #include <set>
 #include <map>
+
+using namespace std::chrono;
 
 int length = 0;
 int candidatecurl = 2;
@@ -22,6 +25,7 @@ std::map<int, std::map<int, std::set<int>>> Dicts_memory = {};
 
 std::vector<int> seq_new = {};
 
+__declspec(noinline)
 void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1, period = 0
     int l = seq->size();
     for (int i = 1; i <= (l / 2); ++i) {
@@ -39,6 +43,7 @@ void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1
     }
 }
 
+__declspec(noinline)
 void tail_with_periods(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods) {               // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
@@ -52,6 +57,7 @@ void tail_with_periods(std::vector<int> seq, std::vector<int>* tail, std::vector
     }
 }
 
+__declspec(noinline)
 void tail_with_periods_part(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods, int i) {   // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
@@ -65,10 +71,12 @@ void tail_with_periods_part(std::vector<int> seq, std::vector<int>* tail, std::v
     }
 }
 
+__declspec(noinline)
 bool check_period_size() {
     return (candidatecurl * candidateperiod) > (length + Periods.size());
 }
 
+__declspec(noinline)
 bool check_candidatecurl_size() {
     if (Tail.size())
         return candidatecurl > Tail.back() + 1;
@@ -76,12 +84,13 @@ bool check_candidatecurl_size() {
         return candidatecurl > length;
 }
 
+__declspec(noinline)
 void up() {
     ++candidateperiod;
     while (check_period_size()) {
         ++candidatecurl;
         candidateperiod = 1;
-        if (check_candidatecurl_size) {
+        if (check_candidatecurl_size()) {
             auto index = std::find(Change_indices.begin(), Change_indices.end(), Periods.size());
             if (index != Change_indices.end()) {
                 Change_indices.erase(index);
@@ -113,6 +122,7 @@ void up() {
     }
 }
 
+__declspec(noinline)
 int real_generator_length() {
     int i = 0;
     while (Dict[Generator[i]].size() == 1) {
@@ -123,6 +133,7 @@ int real_generator_length() {
     return length - i;
 }
 
+__declspec(noinline)
 bool check_positive(int len) {
     for (int i : std::vector<int>(Generator.begin() + length - len, Generator.end())) {
         if (i < 1)
@@ -131,18 +142,20 @@ bool check_positive(int len) {
     return true;
 }
 
+__declspec(noinline)
 void append() {
     Generators_memory[Periods.size()] = Generator;
     Dicts_memory[Periods.size()] = Dict;
     Generator = std::vector<int>(seq_new.begin(), seq_new.begin() + length);
     Dict = Dict_new;
     Dict[candidatecurl].insert(length + Tail.size());
+    Dict_new[candidatecurl].insert(length + Tail.size());
     Tail.push_back(candidatecurl);
     Periods.push_back(candidateperiod);
 
     int curl = 1, period = 0;
     std::vector<int> temp = Generator;
-    temp.push_back(candidatecurl);
+    temp.insert(temp.end(), Tail.begin(), Tail.end());
     while (true) {
         curl = 1, period = 0;
         krul(&temp, &curl, &period);
@@ -152,6 +165,7 @@ void append() {
         temp.push_back(curl);
         Periods.push_back(period);
         Dict[curl].insert(length + Tail.size() - 1);
+        Dict_new[curl].insert(length + Tail.size() - 1);
     }
     candidatecurl = 2;
     candidateperiod = 1;
@@ -168,6 +182,7 @@ void append() {
     }
 }
 
+__declspec(noinline)
 bool test_1() {
     seq_new = Generator;
     seq_new.insert(seq_new.end(), Tail.begin(), Tail.end());
@@ -200,6 +215,7 @@ bool test_1() {
     return true;
 }
 
+__declspec(noinline)
 bool test_2() {
     int l = seq_new.size();
     std::vector<int> temp_seq = seq_new;
@@ -217,6 +233,7 @@ bool test_2() {
     return true;
 }
 
+__declspec(noinline)
 bool check_if_period_works() {
     if (test_1()) {
         if (test_2())
@@ -225,6 +242,7 @@ bool check_if_period_works() {
     return false;
 }
 
+__declspec(noinline)
 void backtracking_step() {
     if (check_if_period_works())
         append();
@@ -232,6 +250,7 @@ void backtracking_step() {
         up();
 }
 
+__declspec(noinline)
 void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
@@ -265,20 +284,12 @@ int main()
     int k1, k2, p1, p2;
     std::cout << "Length: ";
     std::cin >> length;
-    std::cin >> k1;
+    /*std::cin >> k1;
     std::cin >> p1;
     std::cin >> k2;
-    std::cin >> p2;
-    backtracking(k1, p1, k2, p2);
+    std::cin >> p2;*/
+    auto t1 = std::chrono::high_resolution_clock::now();
+    backtracking(2, 1, 1000, 1000);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    std::cout << "Duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
