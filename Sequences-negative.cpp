@@ -6,9 +6,11 @@
 #include <chrono>
 #include <set>
 #include <map>
+#include <unordered_map>
 #include <array>
 
 using namespace std::chrono;
+const int length = 68;
 
 class TDict {
 public:
@@ -18,8 +20,8 @@ public:
     }
     __declspec(noinline)
         void insert(int ind, int16_t value) {
-        if (m_row_max < ind)
-            m_row_max = ind;
+        if (m_row_max < ind + m_bias)
+            m_row_max = ind + m_bias;
 
         for (auto& x : m_table[ind + m_bias]) {
             if (x == value) {
@@ -36,7 +38,7 @@ public:
         int i = 0;
         for (; i < m_table[ind + m_bias].size(); ++i) {
             if (m_table[ind + m_bias][i] == -1) {
-                return; // was not there
+                return; // was not there, nothing to erase
             }
             if (m_table[ind + m_bias][i] == value) {
                 break;
@@ -51,12 +53,11 @@ public:
     __declspec(noinline)
         void erase(int ind) {
         std::memset(&m_table[ind + m_bias], -1, m_cols * sizeof int16_t);
-        //m_table[ind + m_bias][0] = -1;
     }
     __declspec(noinline)
         void move(int src, int dst) {
-        if (m_row_max < src)
-            m_row_max = src;
+        if (m_row_max < dst + m_bias)
+            m_row_max = dst + m_bias;
         for (auto& x : m_table[src + m_bias]) {
             if (x == -1)
                 break;
@@ -69,11 +70,11 @@ public:
         return m_table[src + m_bias][0] != -1 && m_table[src + m_bias][1] == -1;
     }
 
-    // copy assignment operator
+    // copy assignment operator; could use the default, but this is a bit faster as it only copies up to that.m_row_max
     __declspec(noinline)
         TDict& operator=(const TDict& that) {
         if (this != &that) {
-            for (int row = 0; row < that.m_row_max; ++row) {
+            for (int row = 0; row <= that.m_row_max; ++row) {
                 for (int col = 0; col < m_cols; ++col) {
                     if ((m_table[row][col] = that.m_table[row][col]) == -1) {
                         break; // just copied the sentinel
@@ -81,10 +82,8 @@ public:
                 }
             }
 
-            if (m_row_max > that.m_row_max) { // clear not copied rows
-                for (int row = that.m_row_max; row < m_row_max; ++row) {
-                    m_table[row][0] = -1;
-                }
+            for (int row = that.m_row_max + 1; row <= m_row_max; ++row) {// clear not copied rows
+                std::memset(&m_table[row], -1, m_cols * sizeof int16_t);
             }
             m_row_max = that.m_row_max;
 
@@ -92,14 +91,13 @@ public:
         return *this;
     }
 private:
-    static const int m_bias = 70; // 250; // this is max length, as we index from [-length]
-    static const int m_rows = 250;
-    static const int m_cols = 250;
+    static const int m_bias = length-1; // adjust to 0-based index; we index from [-(length-1)]
+    static const int m_rows = 250;      // TODO: Steven - is this a `length + max tail`?
+    static const int m_cols = 250;      // TODO: Vlad - rework to `vectors`, so that we don't have to fix the array length
     std::array<std::array<int16_t, m_cols>, m_rows> m_table;
     int m_row_max = 0;
 };
 
-int length = 0;
 int candidatecurl = 2;
 int candidateperiod = 1;
 std::vector<int> Tail = {};
@@ -109,14 +107,28 @@ std::vector<int> Max_tail_lengths = {};
 std::map<int, std::vector<int>> Generators_memory = {};
 std::vector<std::vector<int>> Best_generators = {};
 std::set<int> Change_indices = {};
-//std::map<int, std::set<int>> Dict = {};
-//std::map<int, std::set<int>> Dict_new = {};
-//std::map<int, std::map<int, std::set<int>>> Dicts_memory = {};
 TDict Dict;
 TDict Dict_new;
 std::map<int, TDict> Dicts_memory = {};
 
 std::vector<int> seq_new = {};
+
+std::unordered_map<int, int> expected_tails = {
+    {2, 2},
+    {4, 4},
+    {6, 8},
+    {8, 58},
+    {9, 59},
+    {10, 60},
+    {11, 112},
+    {14, 118},
+    {19, 119},
+    {22, 120},
+    {48, 131},
+    {68, 132},
+    {76, 133},
+    {77, 173}, // from http://neilsloane.com/doc/CNC.pdf
+};
 
 __declspec(noinline)
 void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1, period = 0
@@ -219,7 +231,6 @@ void up() {
 __declspec(noinline)
 int real_generator_length() {
     int i = 0;
-    //while (Dict[Generator[i]].size() == 1) {
     while (Dict.is_size_1(Generator[i])) {
         ++i;
         if (i == length)
@@ -243,8 +254,6 @@ void append() {
     Dicts_memory[Periods.size()] = Dict;
     Generator = std::vector<int>(seq_new.begin(), seq_new.begin() + length);
     Dict = Dict_new;
-    //Dict[candidatecurl].insert(length + Tail.size());
-    //Dict_new[candidatecurl].insert(length + Tail.size());
     Dict.insert(candidatecurl, length + Tail.size());
     Dict_new.insert(candidatecurl, length + Tail.size());
 
@@ -262,8 +271,6 @@ void append() {
         Tail.push_back(curl);
         temp.push_back(curl);
         Periods.push_back(period);
-        //Dict[curl].insert(length + Tail.size() - 1);
-        //Dict_new[curl].insert(length + Tail.size() - 1);
         Dict.insert(curl, length + Tail.size() - 1);
         Dict_new.insert(curl, length + Tail.size() - 1);
     }
@@ -300,9 +307,6 @@ bool test_1() {
                 if (seq_new[j] == b)
                     seq_new[j] = a;
             }
-            //for (int x : Dict_new[b])
-            //	Dict_new[a].insert(x);
-            //Dict_new.erase(b);
             Dict_new.move(b, a);
         }
         else if (a < b) {
@@ -310,9 +314,6 @@ bool test_1() {
                 if (seq_new[j] == a)
                     seq_new[j] = b;
             }
-            //for (int x : Dict_new[a])
-            //	Dict_new[b].insert(x);
-            //Dict_new.erase(a);
             Dict_new.move(a, b);
         }
     }
@@ -359,7 +360,6 @@ void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
         Generator.push_back(-i);
-        //Dict[-i].insert(i);
         Dict.insert(-i, i);
         Max_tail_lengths.push_back(0);
         Best_generators.push_back({});
@@ -376,6 +376,10 @@ void backtracking(int k1, int p1, int k2, int p2) {
     for (int i = 0; i < length; ++i) {
         if (Max_tail_lengths[i] > record) {
             record = Max_tail_lengths[i];
+            if(expected_tails.find(i+1) == expected_tails.end())
+                std::cout << "NEW:" << std::endl;
+            else if (expected_tails[i + 1] != record)
+                std::cout << "WRONG:" << std::endl;
             std::cout << i + 1 << ": " << record << ", [";
             for (int x : Best_generators[i])
                 std::cout << x << ", ";
@@ -389,7 +393,6 @@ int main()
     //int k1, k2, p1, p2;
     //std::cout << "Length: ";
     //std::cin >> length;
-    length = 68;
     /*std::cin >> k1;
     std::cin >> p1;
     std::cin >> k2;
