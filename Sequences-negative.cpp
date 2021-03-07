@@ -6,8 +6,98 @@
 #include <chrono>
 #include <set>
 #include <map>
+#include <array>
 
 using namespace std::chrono;
+
+class TDict {
+public:
+    __declspec(noinline)
+        TDict() {
+        std::memset(&m_table[0][0], -1, m_rows * m_cols * sizeof int16_t);
+    }
+    __declspec(noinline)
+        void insert(int ind, int16_t value) {
+        if (m_row_max < ind)
+            m_row_max = ind;
+
+        for (auto& x : m_table[ind + m_bias]) {
+            if (x == value) {
+                break;
+            }
+            if (x == -1) {
+                x = value;
+                break;
+            }
+        }
+    }
+    __declspec(noinline)
+        void erase(int ind, int16_t value) {
+        int i = 0;
+        for (; i < m_table[ind + m_bias].size(); ++i) {
+            if (m_table[ind + m_bias][i] == -1) {
+                return; // was not there
+            }
+            if (m_table[ind + m_bias][i] == value) {
+                break;
+            }
+        }
+        for (; i < m_table[ind + m_bias].size() - 1; ++i) {
+            if ((m_table[ind + m_bias][i] = m_table[ind + m_bias][i + 1]) == -1) {
+                return; // just copied the sentinel
+            }
+        }
+    }
+    __declspec(noinline)
+        void erase(int ind) {
+        std::memset(&m_table[ind + m_bias], -1, m_cols * sizeof int16_t);
+        //m_table[ind + m_bias][0] = -1;
+    }
+    __declspec(noinline)
+        void move(int src, int dst) {
+        if (m_row_max < src)
+            m_row_max = src;
+        for (auto& x : m_table[src + m_bias]) {
+            if (x == -1)
+                break;
+            insert(dst, x);
+        }
+        erase(src);
+    }
+    __declspec(noinline)
+        bool is_size_1(int src) {
+        return m_table[src + m_bias][0] != -1 && m_table[src + m_bias][1] == -1;
+    }
+
+    // copy assignment operator
+    __declspec(noinline)
+        TDict& operator=(const TDict& that) {
+        if (this != &that) {
+            for (int row = 0; row < that.m_row_max; ++row) {
+                for (int col = 0; col < m_cols; ++col) {
+                    if ((m_table[row][col] = that.m_table[row][col]) == -1) {
+                        break; // just copied the sentinel
+                    }
+                }
+            }
+
+            if (m_row_max > that.m_row_max) { // clear not copied rows
+                for (int row = that.m_row_max; row < m_row_max; ++row) {
+                    m_table[row][0] = -1;
+                }
+            }
+            m_row_max = that.m_row_max;
+
+        }
+        return *this;
+    }
+private:
+    static const int m_bias = 70; // 250; // this is max length, as we index from [-length]
+    static const int m_rows = 250;
+    static const int m_cols = 250;
+    std::array<std::array<int16_t, m_cols>, m_rows> m_table;
+    int m_row_max = 0;
+};
 
 int length = 0;
 int candidatecurl = 2;
@@ -19,9 +109,12 @@ std::vector<int> Max_tail_lengths = {};
 std::map<int, std::vector<int>> Generators_memory = {};
 std::vector<std::vector<int>> Best_generators = {};
 std::set<int> Change_indices = {};
-std::map<int, std::set<int>> Dict = {};
-std::map<int, std::set<int>> Dict_new = {}; 
-std::map<int, std::map<int, std::set<int>>> Dicts_memory = {};
+//std::map<int, std::set<int>> Dict = {};
+//std::map<int, std::set<int>> Dict_new = {};
+//std::map<int, std::map<int, std::set<int>>> Dicts_memory = {};
+TDict Dict;
+TDict Dict_new;
+std::map<int, TDict> Dicts_memory = {};
 
 std::vector<int> seq_new = {};
 
@@ -32,7 +125,7 @@ void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1
         int j = i;
         while ((*seq)[l - j - 1] == (*seq)[l - j - 1 + i]) {
             ++j;
-            if (j >= l) 
+            if (j >= l)
                 break;
         }
         int candidate = j / i;
@@ -102,7 +195,8 @@ void up() {
             index = std::find(Change_indices.begin(), Change_indices.end(), Periods.size() - 1);
             if (index == Change_indices.end()) {
                 Change_indices.insert(Periods.size() - 1);
-                Dict[Tail.back()].erase(length + Tail.size() - 1);
+                //Dict[Tail.back()].erase(length + Tail.size() - 1);
+                Dict.erase(Tail.back(), length + Tail.size() - 1);
                 candidatecurl = Tail.back() + 1;
                 candidateperiod = 1;
                 Tail.pop_back();
@@ -125,7 +219,8 @@ void up() {
 __declspec(noinline)
 int real_generator_length() {
     int i = 0;
-    while (Dict[Generator[i]].size() == 1) {
+    //while (Dict[Generator[i]].size() == 1) {
+    while (Dict.is_size_1(Generator[i])) {
         ++i;
         if (i == length)
             break;
@@ -148,8 +243,11 @@ void append() {
     Dicts_memory[Periods.size()] = Dict;
     Generator = std::vector<int>(seq_new.begin(), seq_new.begin() + length);
     Dict = Dict_new;
-    Dict[candidatecurl].insert(length + Tail.size());
-    Dict_new[candidatecurl].insert(length + Tail.size());
+    //Dict[candidatecurl].insert(length + Tail.size());
+    //Dict_new[candidatecurl].insert(length + Tail.size());
+    Dict.insert(candidatecurl, length + Tail.size());
+    Dict_new.insert(candidatecurl, length + Tail.size());
+
     Tail.push_back(candidatecurl);
     Periods.push_back(candidateperiod);
 
@@ -164,8 +262,10 @@ void append() {
         Tail.push_back(curl);
         temp.push_back(curl);
         Periods.push_back(period);
-        Dict[curl].insert(length + Tail.size() - 1);
-        Dict_new[curl].insert(length + Tail.size() - 1);
+        //Dict[curl].insert(length + Tail.size() - 1);
+        //Dict_new[curl].insert(length + Tail.size() - 1);
+        Dict.insert(curl, length + Tail.size() - 1);
+        Dict_new.insert(curl, length + Tail.size() - 1);
     }
     candidatecurl = 2;
     candidateperiod = 1;
@@ -186,7 +286,9 @@ __declspec(noinline)
 bool test_1() {
     seq_new = Generator;
     seq_new.insert(seq_new.end(), Tail.begin(), Tail.end());
+
     Dict_new = Dict;
+
     int l = seq_new.size();
     for (int i = 0; i < (candidatecurl - 1) * candidateperiod; ++i) {
         int a = seq_new[l - 1 - i];
@@ -198,18 +300,20 @@ bool test_1() {
                 if (seq_new[j] == b)
                     seq_new[j] = a;
             }
-            for (int x : Dict_new[b])
-                Dict_new[a].insert(x);
-            Dict_new.erase(b);
+            //for (int x : Dict_new[b])
+            //	Dict_new[a].insert(x);
+            //Dict_new.erase(b);
+            Dict_new.move(b, a);
         }
         else if (a < b) {
             for (int j = 0; j < l; ++j) {
                 if (seq_new[j] == a)
                     seq_new[j] = b;
             }
-            for (int x : Dict_new[a])
-                Dict_new[b].insert(x);
-            Dict_new.erase(a);
+            //for (int x : Dict_new[a])
+            //	Dict_new[b].insert(x);
+            //Dict_new.erase(a);
+            Dict_new.move(a, b);
         }
     }
     return true;
@@ -255,7 +359,8 @@ void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
         Generator.push_back(-i);
-        Dict[-i].insert(i);
+        //Dict[-i].insert(i);
+        Dict.insert(-i, i);
         Max_tail_lengths.push_back(0);
         Best_generators.push_back({});
     }
@@ -281,9 +386,10 @@ void backtracking(int k1, int p1, int k2, int p2) {
 
 int main()
 {
-    int k1, k2, p1, p2;
-    std::cout << "Length: ";
-    std::cin >> length;
+    //int k1, k2, p1, p2;
+    //std::cout << "Length: ";
+    //std::cin >> length;
+    length = 68;
     /*std::cin >> k1;
     std::cin >> p1;
     std::cin >> k2;
