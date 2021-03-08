@@ -1,9 +1,8 @@
-<<<<<<< Updated upstream
-// Sequences-negative.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
+// Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
+// First version: 18-11-2020; estimated time to length 48: 250 years*
+// Current version: 07-03-2021; expected time to length 48: 1 second* (yet to implement multi-threading)
+// * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
-=======
->>>>>>> Stashed changes
 #include <iostream>
 #include <vector>
 #include <chrono>
@@ -19,103 +18,7 @@
 #define PROFILE  
 #endif
 using namespace std::chrono;
-<<<<<<< Updated upstream
-const int length = 68;
-
-//std::array<uint64_t, 250> freq_row = {}, freq_col = {};
-//uint64_t copies = 0;
-
-class TDict {
-public:
-    PROFILE
-        TDict() {
-        //std::memset(&m_table[0][0], -1, m_rows * m_cols * sizeof int16_t);
-    }
-    PROFILE
-        void insert(int ind, int16_t value) {
-        int row = ind + m_bias;
-        if (m_row_max < row)
-            m_row_max = row;
-
-        int col_max = m_col_max[row];
-        for (int col = 0; col < col_max; ++col) {
-            if (m_table[row][col] == value) {
-                return; // was already there, nothing to insert
-            }
-        }
-        m_table[row][col_max] = value;
-        m_col_max[row]++; // one value added
-    }
-    PROFILE
-        void erase(int ind, int16_t value) {
-        int row = ind + m_bias;
-        int col_max = m_col_max[row];
-        for (int col = 0; col <= col_max; ++col) {
-            if (m_table[row][col] == value) { // found the value to remove
-                m_col_max[ind + m_bias]--; // one value removed
-                for (; col < col_max; ++col) { // shift the rest of the row left by 1
-                    m_table[row][col] = m_table[row][col + 1];
-                }
-                break;
-            }
-        }
-    }
-    PROFILE
-        void erase(int ind) {
-        m_col_max[ind + m_bias] = 0; // all values removed
-    }
-    PROFILE
-        void move(int src, int dst) {
-        if (m_row_max < dst + m_bias)
-            m_row_max = dst + m_bias;
-        int col_max = m_col_max[src + m_bias];
-        for (int col = 0; col < col_max; ++col) {
-            insert(dst, m_table[src + m_bias][col]);
-        }
-
-        erase(src);
-    }
-    PROFILE
-        bool is_size_1(int src) {
-        return m_col_max[src + m_bias] == 1;
-        //return m_table[src + m_bias][0] != -1 && m_table[src + m_bias][1] == -1;
-    }
-
-    // copy assignment operator; could use the default, but this is a bit faster as it only copies up to that.m_row_max
-    PROFILE
-        TDict& operator=(const TDict& that) {
-        //copies++;
-        if (this != &that) {
-            //freq_row[that.m_row_max]++;
-            for (int row = 0; row <= that.m_row_max; ++row) {
-                int col_max = that.m_col_max[row];
-                //freq_col[col_max]++;
-                //if(col_max == 1)
-                //    m_table[row][0] = that.m_table[row][0];
-                //else if (col_max > 1)
-                    for (int col = 0; col < col_max; ++col) {
-                        m_table[row][col] = that.m_table[row][col];
-                    }
-            }
-
-            int row_max = std::max(m_row_max, that.m_row_max);
-            std::memcpy(&m_col_max, &that.m_col_max, (row_max + 1) * sizeof int16_t);
-            m_row_max = that.m_row_max;
-            //m_col_max = that.m_col_max;
-        }
-        return *this;
-    }
-private:
-    static const int m_bias = length-1; // adjust to 0-based index; we index from [-(length-1)]
-    static const int m_rows = 250;      // TODO: Steven - is this a `length + max tail`?
-    static const int m_cols = 250;      // TODO: Vlad - rework to `vectors`, so that we don't have to fix the array length
-    std::array<std::array<int16_t, m_cols>, m_rows> m_table;
-    int m_row_max = 0;
-    std::array<int16_t, m_rows> m_col_max = {};
-};
-=======
-const int length = 80;
->>>>>>> Stashed changes
+const int length = 48;
 
 int candidatecurl = 2;
 int candidateperiod = 1;
@@ -142,7 +45,7 @@ std::unordered_map<int, int> expected_tails = {
     {22, 120},
     {48, 131},
     {68, 132},
-    {76, 133},
+    {73, 133},
     {77, 173}, // from http://neilsloane.com/doc/CNC.pdf
 };
 
@@ -243,7 +146,7 @@ void up() {
 PROFILE
 int real_generator_length() {
     int i = 0;
-    while (Generator[i] == (- length + i)) {
+    while (Generator[i] == (-length + i)) {
         ++i;
         if (i == length)
             break;
@@ -362,7 +265,7 @@ PROFILE
 void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
-        Generator.push_back(- length + i);
+        Generator.push_back(-length + i);
         Max_tail_lengths.push_back(0);
         Best_generators.push_back({});
     }
@@ -378,7 +281,7 @@ void backtracking(int k1, int p1, int k2, int p2) {
     for (int i = 0; i < length; ++i) {
         if (Max_tail_lengths[i] > record) {
             record = Max_tail_lengths[i];
-            if(expected_tails.find(i+1) == expected_tails.end())
+            if (expected_tails.find(i + 1) == expected_tails.end())
                 std::cout << "NEW:" << std::endl;
             else if (expected_tails[i + 1] != record)
                 std::cout << "WRONG:" << std::endl;
@@ -408,8 +311,4 @@ int main()
     //for (int i = 0; i < 250; ++i) {
     //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
     //}
-<<<<<<< Updated upstream
 }
-=======
-}
->>>>>>> Stashed changes
