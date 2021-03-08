@@ -1,6 +1,9 @@
+<<<<<<< Updated upstream
 // Sequences-negative.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+=======
+>>>>>>> Stashed changes
 #include <iostream>
 #include <vector>
 #include <chrono>
@@ -16,6 +19,7 @@
 #define PROFILE  
 #endif
 using namespace std::chrono;
+<<<<<<< Updated upstream
 const int length = 68;
 
 //std::array<uint64_t, 250> freq_row = {}, freq_col = {};
@@ -109,6 +113,9 @@ private:
     int m_row_max = 0;
     std::array<int16_t, m_rows> m_col_max = {};
 };
+=======
+const int length = 80;
+>>>>>>> Stashed changes
 
 int candidatecurl = 2;
 int candidateperiod = 1;
@@ -119,9 +126,6 @@ std::vector<int> Max_tail_lengths = {};
 std::map<int, std::vector<int>> Generators_memory = {};
 std::vector<std::vector<int>> Best_generators = {};
 std::set<int> Change_indices = {};
-TDict Dict;
-TDict Dict_new;
-std::map<int, TDict> Dicts_memory = {};
 
 std::vector<int> seq_new = {};
 
@@ -219,8 +223,6 @@ void up() {
             index = std::find(Change_indices.begin(), Change_indices.end(), Periods.size() - 1);
             if (index == Change_indices.end()) {
                 Change_indices.insert(Periods.size() - 1);
-                //Dict[Tail.back()].erase(length + Tail.size() - 1);
-                Dict.erase(Tail.back(), length + Tail.size() - 1);
                 candidatecurl = Tail.back() + 1;
                 candidateperiod = 1;
                 Tail.pop_back();
@@ -232,9 +234,7 @@ void up() {
                 Tail.pop_back();
                 Periods.pop_back();
                 Generator = Generators_memory[Periods.size()];
-                Dict = Dicts_memory[Periods.size()];
                 Generators_memory.erase(Periods.size());
-                Dicts_memory.erase(Periods.size());
             }
         }
     }
@@ -243,7 +243,7 @@ void up() {
 PROFILE
 int real_generator_length() {
     int i = 0;
-    while (Dict.is_size_1(Generator[i])) {
+    while (Generator[i] == (- length + i)) {
         ++i;
         if (i == length)
             break;
@@ -263,11 +263,7 @@ bool check_positive(int len) {
 PROFILE
 void append() {
     Generators_memory[Periods.size()] = Generator;
-    Dicts_memory[Periods.size()] = Dict;
     Generator = std::vector<int>(seq_new.begin(), seq_new.begin() + length);
-    Dict = Dict_new;
-    Dict.insert(candidatecurl, length + Tail.size());
-    Dict_new.insert(candidatecurl, length + Tail.size());
 
     Tail.push_back(candidatecurl);
     Periods.push_back(candidateperiod);
@@ -283,8 +279,6 @@ void append() {
         Tail.push_back(curl);
         temp.push_back(curl);
         Periods.push_back(period);
-        Dict.insert(curl, length + Tail.size() - 1);
-        Dict_new.insert(curl, length + Tail.size() - 1);
     }
     candidatecurl = 2;
     candidateperiod = 1;
@@ -306,8 +300,7 @@ bool test_1() {
     seq_new = Generator;
     seq_new.insert(seq_new.end(), Tail.begin(), Tail.end());
 
-    Dict_new = Dict;
-
+    int k = Generator.size();
     int l = seq_new.size();
     for (int i = 0; i < (candidatecurl - 1) * candidateperiod; ++i) {
         int a = seq_new[l - 1 - i];
@@ -315,18 +308,16 @@ bool test_1() {
         if (a != b and a > 0 and b > 0)
             return false;
         if (a > b) {
-            for (int j = 0; j < l; ++j) {
+            for (int j = 0; j < k; ++j) {
                 if (seq_new[j] == b)
                     seq_new[j] = a;
             }
-            Dict_new.move(b, a);
         }
         else if (a < b) {
-            for (int j = 0; j < l; ++j) {
+            for (int j = 0; j < k; ++j) {
                 if (seq_new[j] == a)
                     seq_new[j] = b;
             }
-            Dict_new.move(a, b);
         }
     }
     return true;
@@ -371,8 +362,7 @@ PROFILE
 void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
-        Generator.push_back(-i);
-        Dict.insert(-i, i);
+        Generator.push_back(- length + i);
         Max_tail_lengths.push_back(0);
         Best_generators.push_back({});
     }
@@ -418,4 +408,8 @@ int main()
     //for (int i = 0; i < 250; ++i) {
     //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
     //}
+<<<<<<< Updated upstream
 }
+=======
+}
+>>>>>>> Stashed changes
