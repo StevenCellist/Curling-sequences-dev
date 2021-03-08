@@ -10,27 +10,32 @@
 #include <map>
 #include <unordered_map>
 #include <array>
+#include <thread>
+#include <mutex>
 
-#define PROFILING 
+//#define PROFILING 
 #ifdef PROFILING
 #define PROFILE __declspec(noinline)
 #else
 #define PROFILE  
 #endif
 using namespace std::chrono;
-const int length = 48;
+const int length = 110;
 
-int candidatecurl = 2;
-int candidateperiod = 1;
-std::vector<int> Tail = {};
-std::vector<int> Periods = {};
-std::vector<int> Generator = {};
-std::vector<int> Max_tail_lengths = {};
-std::map<int, std::vector<int>> Generators_memory = {};
-std::vector<std::vector<int>> Best_generators = {};
-std::set<int> Change_indices = {};
+thread_local int candidatecurl;
+thread_local int candidateperiod;
+thread_local std::vector<int> Tail = {};
+thread_local std::vector<int> Periods = {};
+thread_local std::vector<int> Generator = {};
+thread_local std::vector<int> Max_tails = {};
+thread_local std::vector<int> seq_new = {};
+thread_local std::vector<std::vector<int>> Best_generators = {};
+thread_local std::map<int, std::vector<int>> Generators_memory = {};
+thread_local std::set<int> Change_indices = {};
 
-std::vector<int> seq_new = {};
+std::vector<int> Global_max_tails(length);
+std::vector<std::vector<int>> Global_best_generators(length);
+std::mutex m_tails;
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},
@@ -46,7 +51,15 @@ std::unordered_map<int, int> expected_tails = {
     {48, 131},
     {68, 132},
     {73, 133},
-    {77, 173}, // from http://neilsloane.com/doc/CNC.pdf
+    {77, 173},
+    {85, 179},
+    {115, 215},
+    {116, 228},
+    {118, 229},
+    {128, 332},
+    {132, 340},
+    {133, 342},
+    {149, 343}
 };
 
 PROFILE
@@ -187,13 +200,13 @@ void append() {
     candidateperiod = 1;
     Change_indices.insert(Tail.size());
     int len = real_generator_length();
-    if (Max_tail_lengths.back() == Tail.size()) {
+    if (Max_tails.back() == Tail.size()) {
         std::vector<int> temp = Best_generators.back();
         temp.insert(temp.end(), Generator.begin(), Generator.end() - len);
         Best_generators.back() = temp;
     }
-    if (Max_tail_lengths[len - 1] < Tail.size()) {
-        Max_tail_lengths[len - 1] = Tail.size();
+    if (Max_tails[len - 1] < Tail.size()) {
+        Max_tails[len - 1] = Tail.size();
         Best_generators[len - 1] = std::vector<int>(Generator.end() - len, Generator.end());
     }
 }
@@ -263,48 +276,79 @@ void backtracking_step() {
 
 PROFILE
 void backtracking(int k1, int p1, int k2, int p2) {
+    candidatecurl = k1;
+    candidateperiod = p1;
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
         Generator.push_back(-length + i);
-        Max_tail_lengths.push_back(0);
+        Max_tails.push_back(0);
         Best_generators.push_back({});
     }
     std::vector<int> seq = Generator;
     seq.insert(seq.end(), Tail.begin(), Tail.end());
 
+    auto t1 = std::chrono::high_resolution_clock::now();
     while (candidatecurl) {
         if (Tail.size() == 0 and candidatecurl == k2 and candidateperiod == p2)
             break;
         backtracking_step();
     }
+    auto t2 = std::chrono::high_resolution_clock::now();
+    { 
+        std::lock_guard<std::mutex> l(m_tails);
+        for (int i = 0; i < length; ++i) {
+            if (Max_tails[i] > Global_max_tails[i]) {
+                Global_max_tails[i] = Max_tails[i];
+                Global_best_generators[i] = Best_generators[i];
+            }
+        }
+        std::cout << "Finished: " << k1 << ", " << p1 << ", " << k2 << ", " << p2 << ", ";
+        std::cout << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
+    }
+}
+
+void multi_threader() {
+    std::vector<std::thread> thread_vector;
+    // probably good values for length ~150:
+    /*thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 6));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 6, 2, 20));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 20, 2, 60));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 60, 3, 2));
+    thread_vector.emplace_back(std::thread(backtracking, 3, 2, 4, 1));
+    thread_vector.emplace_back(std::thread(backtracking, 4, 1, 5, 1));
+    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));*/
+    thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 7));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 7, 2, 24));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 24, 2, 40));
+    thread_vector.emplace_back(std::thread(backtracking, 2, 40, 3, 3));
+    thread_vector.emplace_back(std::thread(backtracking, 3, 3, 3, 24));
+    thread_vector.emplace_back(std::thread(backtracking, 3, 24, 5, 1));
+    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
+    for (auto& th : thread_vector) th.join();
+}
+
+int main()
+{
+    auto t1 = std::chrono::high_resolution_clock::now();
+    multi_threader();
+    auto t2 = std::chrono::high_resolution_clock::now();
+
     int record = 0;
     for (int i = 0; i < length; ++i) {
-        if (Max_tail_lengths[i] > record) {
-            record = Max_tail_lengths[i];
+        if (Global_max_tails[i] > record) {
+            record = Global_max_tails[i];
             if (expected_tails.find(i + 1) == expected_tails.end())
                 std::cout << "NEW:" << std::endl;
             else if (expected_tails[i + 1] != record)
                 std::cout << "WRONG:" << std::endl;
             std::cout << i + 1 << ": " << record << ", [";
-            for (int x : Best_generators[i])
+            for (int x : Global_best_generators[i])
                 std::cout << x << ", ";
             std::cout << "]" << std::endl;
         }
     }
-}
-
-int main()
-{
-    //int k1, k2, p1, p2;
-    //std::cout << "Length: ";
-    //std::cin >> length;
-    /*std::cin >> k1;
-    std::cin >> p1;
-    std::cin >> k2;
-    std::cin >> p2;*/
-    auto t1 = std::chrono::high_resolution_clock::now();
-    backtracking(2, 1, 1000, 1000);
-    auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
 
     //std::cout << "copies: " << copies << std::endl;
