@@ -36,7 +36,7 @@ Current jump-points:
 
 85: 179
 
-115: 215 (disprovel of P3)
+115: 215 (disproval of P3)
 
 116: 228
 
