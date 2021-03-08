@@ -13,14 +13,14 @@
 #include <thread>
 #include <mutex>
 
-#define PROFILING 
+//#define PROFILING 
 #ifdef PROFILING
 #define PROFILE __declspec(noinline)
 #else
 #define PROFILE  
 #endif
 using namespace std::chrono;
-int length = 80;
+const int length = 110;
 
 thread_local int candidatecurl;
 thread_local int candidateperiod;
@@ -33,8 +33,8 @@ thread_local std::vector<std::vector<int>> Best_generators = {};
 thread_local std::map<int, std::vector<int>> Generators_memory = {};
 thread_local std::set<int> Change_indices = {};
 
-std::vector<int> Global_max_tails(256, 0);
-std::vector<std::vector<int>> Global_best_generators(256);
+std::vector<int> Global_max_tails(length);
+std::vector<std::vector<int>> Global_best_generators(length);
 std::mutex m_tails;
 
 std::unordered_map<int, int> expected_tails = {
@@ -64,7 +64,6 @@ std::unordered_map<int, int> expected_tails = {
 
 PROFILE
 void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1, period = 0
-    *curl = 1, *period = 0;
     int l = seq->size();
     for (int i = 1; i <= (l / 2); ++i) {
         int j = i;
@@ -72,11 +71,11 @@ void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1
             ++j;
             if (j >= l)
                 break;
-            int candidate = j / i;
-            if (candidate > *curl) {
-                *curl = candidate;
-                *period = i;
-            }
+        }
+        int candidate = j / i;
+        if (candidate > *curl) {
+            *curl = candidate;
+            *period = i;
         }
     }
 }
@@ -85,28 +84,28 @@ PROFILE
 void tail_with_periods(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods) {               // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
-    int l = seq.size();
     krul(&seq, &curl, &period);
     while (curl > 1) {
-        temp.push_back(curl);
+        tail->push_back(curl);
+        temp.push_back(curl);           // easy optimization
         periods->push_back(period);
+        curl = 1, period = 0;
         krul(&temp, &curl, &period);
     }
-    *tail = std::vector<int>(temp.begin() + l, temp.end());
 }
 
 PROFILE
 void tail_with_periods_part(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods, int i) {   // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
-    int l = seq.size();
     krul(&seq, &curl, &period);
     while (curl > 1 and tail->size() < i) {
-        temp.push_back(curl);
+        tail->push_back(curl);
+        temp.push_back(curl);           // easy optimization
         periods->push_back(period);
+        curl = 1, period = 0;
         krul(&temp, &curl, &period);
     }
-    *tail = std::vector<int>(temp.begin() + l, temp.end());
 }
 
 PROFILE
@@ -125,37 +124,36 @@ bool check_candidatecurl_size() {
 PROFILE
 void up() {
     ++candidateperiod;
-    if (!Tail.size()) {
-        candidatecurl = 0;
-    }
-    else {
-        while (check_period_size()) {
-            ++candidatecurl;
-            candidateperiod = 1;
-            if (check_candidatecurl_size()) {
-                int k = Periods.size();
-                auto index = std::find(Change_indices.begin(), Change_indices.end(), k);
-                if (index != Change_indices.end()) {
-                    Change_indices.erase(index);
-                }
-                index = std::find(Change_indices.begin(), Change_indices.end(), k - 1);
-                if (index == Change_indices.end()) {
-                    Change_indices.insert(k - 1);
-                    candidatecurl = Tail.back() + 1;
-                    candidateperiod = 1;
-                }
-                else {
-                    candidatecurl = Tail.back();
-                    candidateperiod = Periods.back() + 1;
-                    Generator = Generators_memory[k - 1];
-                    Generators_memory.erase(k - 1);
-                }
+    while (check_period_size()) {
+        ++candidatecurl;
+        candidateperiod = 1;
+        if (check_candidatecurl_size()) {
+            auto index = std::find(Change_indices.begin(), Change_indices.end(), Periods.size());
+            if (index != Change_indices.end()) {
+                Change_indices.erase(index);
+            }
+            if (Tail.size() == 0) {
+                candidatecurl = 0;
+                break;
+            }
+            index = std::find(Change_indices.begin(), Change_indices.end(), Periods.size() - 1);
+            if (index == Change_indices.end()) {
+                Change_indices.insert(Periods.size() - 1);
+                candidatecurl = Tail.back() + 1;
+                candidateperiod = 1;
                 Tail.pop_back();
                 Periods.pop_back();
             }
+            else {
+                candidatecurl = Tail.back();
+                candidateperiod = Periods.back() + 1;
+                Tail.pop_back();
+                Periods.pop_back();
+                Generator = Generators_memory[Periods.size()];
+                Generators_memory.erase(Periods.size());
+            }
         }
     }
-    
 }
 
 PROFILE
@@ -190,6 +188,7 @@ void append() {
     std::vector<int> temp = Generator;
     temp.insert(temp.end(), Tail.begin(), Tail.end());
     while (true) {
+        curl = 1, period = 0;
         krul(&temp, &curl, &period);
         if (curl == 1)
             break;
@@ -310,7 +309,7 @@ void backtracking(int k1, int p1, int k2, int p2) {
 
 void multi_threader() {
     std::vector<std::thread> thread_vector;
-    // good values for length > 110
+    // probably good values for length ~150:
     /*thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
     thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 6));
     thread_vector.emplace_back(std::thread(backtracking, 2, 6, 2, 20));
@@ -318,8 +317,7 @@ void multi_threader() {
     thread_vector.emplace_back(std::thread(backtracking, 2, 60, 3, 2));
     thread_vector.emplace_back(std::thread(backtracking, 3, 2, 4, 1));
     thread_vector.emplace_back(std::thread(backtracking, 4, 1, 5, 1));
-    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
-    // good values for length 80 ~ 110
+    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));*/
     thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
     thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 7));
     thread_vector.emplace_back(std::thread(backtracking, 2, 7, 2, 24));
@@ -327,35 +325,12 @@ void multi_threader() {
     thread_vector.emplace_back(std::thread(backtracking, 2, 40, 3, 3));
     thread_vector.emplace_back(std::thread(backtracking, 3, 3, 3, 24));
     thread_vector.emplace_back(std::thread(backtracking, 3, 24, 5, 1));
-    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));*/
-    // no point in multi-threading for length < 80
-    thread_vector.emplace_back(std::thread(backtracking, 2, 1, 1000, 1000));
+    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
     for (auto& th : thread_vector) th.join();
 }
 
 int main()
 {
-    /*for (int i = 50; i <= 120; i += 5) {
-        length = i;
-        auto t1 = std::chrono::high_resolution_clock::now();
-        multi_threader();
-        auto t2 = std::chrono::high_resolution_clock::now();
-        int record = 0;
-        for (int i = 0; i < length; ++i) {
-            if (Global_max_tails[i] > record) {
-                record = Global_max_tails[i];
-                if (expected_tails.find(i + 1) == expected_tails.end())
-                    std::cout << "NEW:" << std::endl;
-                else if (expected_tails[i + 1] != record)
-                    std::cout << "WRONG:" << std::endl;
-                std::cout << i + 1 << ": " << record << ", [";
-                for (int x : Global_best_generators[i])
-                    std::cout << x << ", ";
-                std::cout << "]" << std::endl;
-            }
-        }
-        std::cout << "Duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
-    }*/
     auto t1 = std::chrono::high_resolution_clock::now();
     multi_threader();
     auto t2 = std::chrono::high_resolution_clock::now();
