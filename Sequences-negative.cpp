@@ -9,84 +9,95 @@
 #include <unordered_map>
 #include <array>
 
+#define PROFILING 
+#ifdef PROFILING
+#define PROFILE __declspec(noinline)
+#else
+#define PROFILE  
+#endif
 using namespace std::chrono;
 const int length = 68;
 
+//std::array<uint64_t, 250> freq_row = {}, freq_col = {};
+//uint64_t copies = 0;
+
 class TDict {
 public:
-    __declspec(noinline)
+    PROFILE
         TDict() {
-        std::memset(&m_table[0][0], -1, m_rows * m_cols * sizeof int16_t);
+        //std::memset(&m_table[0][0], -1, m_rows * m_cols * sizeof int16_t);
     }
-    __declspec(noinline)
+    PROFILE
         void insert(int ind, int16_t value) {
-        if (m_row_max < ind + m_bias)
-            m_row_max = ind + m_bias;
+        int row = ind + m_bias;
+        if (m_row_max < row)
+            m_row_max = row;
 
-        for (auto& x : m_table[ind + m_bias]) {
-            if (x == value) {
-                break;
-            }
-            if (x == -1) {
-                x = value;
-                break;
+        int col_max = m_col_max[row];
+        for (int col = 0; col < col_max; ++col) {
+            if (m_table[row][col] == value) {
+                return; // was already there, nothing to insert
             }
         }
+        m_table[row][col_max] = value;
+        m_col_max[row]++; // one value added
     }
-    __declspec(noinline)
+    PROFILE
         void erase(int ind, int16_t value) {
-        int i = 0;
-        for (; i < m_table[ind + m_bias].size(); ++i) {
-            if (m_table[ind + m_bias][i] == -1) {
-                return; // was not there, nothing to erase
-            }
-            if (m_table[ind + m_bias][i] == value) {
+        int row = ind + m_bias;
+        int col_max = m_col_max[row];
+        for (int col = 0; col <= col_max; ++col) {
+            if (m_table[row][col] == value) { // found the value to remove
+                m_col_max[ind + m_bias]--; // one value removed
+                for (; col < col_max; ++col) { // shift the rest of the row left by 1
+                    m_table[row][col] = m_table[row][col + 1];
+                }
                 break;
             }
         }
-        for (; i < m_table[ind + m_bias].size() - 1; ++i) {
-            if ((m_table[ind + m_bias][i] = m_table[ind + m_bias][i + 1]) == -1) {
-                return; // just copied the sentinel
-            }
-        }
     }
-    __declspec(noinline)
+    PROFILE
         void erase(int ind) {
-        std::memset(&m_table[ind + m_bias], -1, m_cols * sizeof int16_t);
+        m_col_max[ind + m_bias] = 0; // all values removed
     }
-    __declspec(noinline)
+    PROFILE
         void move(int src, int dst) {
         if (m_row_max < dst + m_bias)
             m_row_max = dst + m_bias;
-        for (auto& x : m_table[src + m_bias]) {
-            if (x == -1)
-                break;
-            insert(dst, x);
+        int col_max = m_col_max[src + m_bias];
+        for (int col = 0; col < col_max; ++col) {
+            insert(dst, m_table[src + m_bias][col]);
         }
+
         erase(src);
     }
-    __declspec(noinline)
+    PROFILE
         bool is_size_1(int src) {
-        return m_table[src + m_bias][0] != -1 && m_table[src + m_bias][1] == -1;
+        return m_col_max[src + m_bias] == 1;
+        //return m_table[src + m_bias][0] != -1 && m_table[src + m_bias][1] == -1;
     }
 
     // copy assignment operator; could use the default, but this is a bit faster as it only copies up to that.m_row_max
-    __declspec(noinline)
+    PROFILE
         TDict& operator=(const TDict& that) {
+        //copies++;
         if (this != &that) {
+            //freq_row[that.m_row_max]++;
             for (int row = 0; row <= that.m_row_max; ++row) {
-                for (int col = 0; col < m_cols; ++col) {
-                    if ((m_table[row][col] = that.m_table[row][col]) == -1) {
-                        break; // just copied the sentinel
+                int col_max = that.m_col_max[row];
+                //freq_col[col_max]++;
+                //if(col_max == 1)
+                //    m_table[row][0] = that.m_table[row][0];
+                //else if (col_max > 1)
+                    for (int col = 0; col < col_max; ++col) {
+                        m_table[row][col] = that.m_table[row][col];
                     }
-                }
             }
 
-            for (int row = that.m_row_max + 1; row <= m_row_max; ++row) {// clear not copied rows
-                std::memset(&m_table[row], -1, m_cols * sizeof int16_t);
-            }
+            int row_max = std::max(m_row_max, that.m_row_max);
+            std::memcpy(&m_col_max, &that.m_col_max, (row_max + 1) * sizeof int16_t);
             m_row_max = that.m_row_max;
-
+            //m_col_max = that.m_col_max;
         }
         return *this;
     }
@@ -96,6 +107,7 @@ private:
     static const int m_cols = 250;      // TODO: Vlad - rework to `vectors`, so that we don't have to fix the array length
     std::array<std::array<int16_t, m_cols>, m_rows> m_table;
     int m_row_max = 0;
+    std::array<int16_t, m_rows> m_col_max = {};
 };
 
 int candidatecurl = 2;
@@ -130,7 +142,7 @@ std::unordered_map<int, int> expected_tails = {
     {77, 173}, // from http://neilsloane.com/doc/CNC.pdf
 };
 
-__declspec(noinline)
+PROFILE
 void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1, period = 0
     int l = seq->size();
     for (int i = 1; i <= (l / 2); ++i) {
@@ -148,7 +160,7 @@ void krul(std::vector<int>* seq, int* curl, int* period) {           // curl = 1
     }
 }
 
-__declspec(noinline)
+PROFILE
 void tail_with_periods(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods) {               // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
@@ -162,7 +174,7 @@ void tail_with_periods(std::vector<int> seq, std::vector<int>* tail, std::vector
     }
 }
 
-__declspec(noinline)
+PROFILE
 void tail_with_periods_part(std::vector<int> seq, std::vector<int>* tail, std::vector<int>* periods, int i) {   // tail = {}, periods = {}
     int curl = 1, period = 0;
     std::vector<int> temp = seq;
@@ -176,12 +188,12 @@ void tail_with_periods_part(std::vector<int> seq, std::vector<int>* tail, std::v
     }
 }
 
-__declspec(noinline)
+PROFILE
 bool check_period_size() {
     return (candidatecurl * candidateperiod) > (length + Periods.size());
 }
 
-__declspec(noinline)
+PROFILE
 bool check_candidatecurl_size() {
     if (Tail.size())
         return candidatecurl > Tail.back() + 1;
@@ -189,7 +201,7 @@ bool check_candidatecurl_size() {
         return candidatecurl > length;
 }
 
-__declspec(noinline)
+PROFILE
 void up() {
     ++candidateperiod;
     while (check_period_size()) {
@@ -228,7 +240,7 @@ void up() {
     }
 }
 
-__declspec(noinline)
+PROFILE
 int real_generator_length() {
     int i = 0;
     while (Dict.is_size_1(Generator[i])) {
@@ -239,7 +251,7 @@ int real_generator_length() {
     return length - i;
 }
 
-__declspec(noinline)
+PROFILE
 bool check_positive(int len) {
     for (int i : std::vector<int>(Generator.begin() + length - len, Generator.end())) {
         if (i < 1)
@@ -248,7 +260,7 @@ bool check_positive(int len) {
     return true;
 }
 
-__declspec(noinline)
+PROFILE
 void append() {
     Generators_memory[Periods.size()] = Generator;
     Dicts_memory[Periods.size()] = Dict;
@@ -289,7 +301,7 @@ void append() {
     }
 }
 
-__declspec(noinline)
+PROFILE
 bool test_1() {
     seq_new = Generator;
     seq_new.insert(seq_new.end(), Tail.begin(), Tail.end());
@@ -320,7 +332,7 @@ bool test_1() {
     return true;
 }
 
-__declspec(noinline)
+PROFILE
 bool test_2() {
     int l = seq_new.size();
     std::vector<int> temp_seq = seq_new;
@@ -338,7 +350,7 @@ bool test_2() {
     return true;
 }
 
-__declspec(noinline)
+PROFILE
 bool check_if_period_works() {
     if (test_1()) {
         if (test_2())
@@ -347,7 +359,7 @@ bool check_if_period_works() {
     return false;
 }
 
-__declspec(noinline)
+PROFILE
 void backtracking_step() {
     if (check_if_period_works())
         append();
@@ -355,7 +367,7 @@ void backtracking_step() {
         up();
 }
 
-__declspec(noinline)
+PROFILE
 void backtracking(int k1, int p1, int k2, int p2) {
     Change_indices.insert(0);
     for (int i = 0; i < length; ++i) {
@@ -401,4 +413,9 @@ int main()
     backtracking(2, 1, 1000, 1000);
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
+
+    //std::cout << "copies: " << copies << std::endl;
+    //for (int i = 0; i < 250; ++i) {
+    //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
+    //}
 }
