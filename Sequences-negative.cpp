@@ -12,32 +12,32 @@
 #include <array>
 #include <thread>
 #include <mutex>
-#include <fstream>
 
 #define PROFILING 
+
+#ifdef _MSC_VER
+#define FILE_OPEN   
+#define OUTPUT std::cout
+#define FILE_CLOSE  
 #ifdef PROFILING
 #define PROFILE __declspec(noinline)
 #else
 #define PROFILE  
 #endif
-
-//#define Linux
-#ifdef Linux
+#else // gcc (Linux)
+#include <fstream>
 std::ofstream file;
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
 #define FILE_CLOSE file.close();
-#else
-#define FILE_OPEN   
-#define OUTPUT std::cout
-#define FILE_CLOSE  
+#define PROFILE  
 #endif
 
 typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-int length = 80;
+const int length = 100;
 
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
@@ -78,11 +78,13 @@ PROFILE
 void krul(const val_vector& seq, int& curl, int& period) {  // curl = 1, period = 0
     curl = 1, period = 0;
     int l = seq.size();
-    for (int i = 1; i <= (l / 2); ++i) {
-        const val_type* p1 = &seq[l - i];                   // start of the last pattern
+    const val_type* p0 = &seq[0];                           // start of sequence
+    const val_type* p1 = &seq[l - 1];                       // start of the last pattern
+    l /= 2;
+    for (int i = 1; i <= l; ++i, --p1) {
         const val_type* p2 = p1 - i;                        // start of the previous pattern
-        for (int freq = 2; p2 >= &seq[0]; ++freq, p2 -= i) {
-            if (memcmp(p1, p2, i * sizeof(val_type)))       // doesn't match
+        for (int freq = 2; p2 >= p0; ++freq, p2 -= i) {
+            if (memcmp(p1, p2, i * sizeof val_type))        // doesn't match
                 break;
             if (curl < freq) {
                 curl = freq;
@@ -215,7 +217,7 @@ bool test_2() {
     val_vector temp_period = Periods;           // still want to get rid of this one
     temp_period.push_back(candidateperiod);
     int curl = 1, period = 0;
-    
+
     for (int i = 0; i <= l - length; ++i) {
         val_vector temp = val_vector(seq_new.begin(), seq_new.begin() + length + i);
         curl = 1, period = 0;
@@ -228,11 +230,7 @@ bool test_2() {
 
 PROFILE
 bool check_if_period_works() {
-    if (test_1()) {
-        if (test_2())
-            return true;
-    }
-    return false;
+    return test_1() && test_2();
 }
 
 PROFILE
@@ -262,7 +260,7 @@ void backtracking(std::vector<int> params) {
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
-    
+
     auto t1 = std::chrono::high_resolution_clock::now();
     while (candidatecurl) {
         if (seq.size() == length and candidatecurl == k2 and candidateperiod == p2)
@@ -324,8 +322,4 @@ int main()
         }
     }
     FILE_CLOSE;
-    //std::cout << "copies: " << copies << std::endl;
-    //for (int i = 0; i < 250; ++i) {
-    //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
-    //}
 }
