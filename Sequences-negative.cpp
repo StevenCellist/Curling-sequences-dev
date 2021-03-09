@@ -17,24 +17,28 @@
 #ifdef PROFILING
 #define PROFILE __declspec(noinline)
 #else
-#define PROFILE  
+#define PROFILE  //__forceinline
 #endif
 using namespace std::chrono;
-short int length = 80;
 
-thread_local short int candidatecurl;
-thread_local short int candidateperiod;
-thread_local std::vector<short int> Tail = {};
-thread_local std::vector<short int> Periods = {};
-thread_local std::vector<short int> Generator = {};
-thread_local std::vector<short int> Max_tails = {};
-thread_local std::vector<short int> seq_new = {};
-thread_local std::vector<std::vector<short int>> Best_generators = {};
-thread_local std::map<short int, std::vector<short int>> Generators_memory = {};
-thread_local std::set<short int> Change_indices = {};
+int length = 100;
 
-std::vector<short int> Global_max_tails(256, 0);
-std::vector<std::vector<short int>> Global_best_generators(256);
+typedef int16_t val_type;
+typedef std::vector<val_type> val_vector;
+
+thread_local int candidatecurl;
+thread_local int candidateperiod;
+thread_local val_vector Tail = {};
+thread_local val_vector Periods = {};
+thread_local val_vector Generator = {};
+thread_local val_vector Max_tails = {};
+thread_local val_vector seq_new = {};
+thread_local std::vector<val_vector> Best_generators = {};
+thread_local std::map<int, val_vector> Generators_memory = {};
+thread_local std::set<int> Change_indices = {};
+
+val_vector Global_max_tails(256, 0);
+std::vector<val_vector> Global_best_generators(256);
 std::mutex m_tails;
 
 std::unordered_map<short int, short int> expected_tails = {
@@ -63,34 +67,29 @@ std::unordered_map<short int, short int> expected_tails = {
 };
 
 PROFILE
-void krul(std::vector<short int>* seq, short int* curl, short int* period) {           // curl = 1, period = 0
+void krul(val_vector* seq, short int* curl, short int* period) {           // curl = 1, period = 0
     *curl = 1, * period = 0;
     short int l = seq->size();
     for (short int i = 1; i <= (l / 2); ++i) {
         short int j = i;
         while ((*seq)[l - j - 1] == (*seq)[l - j - 1 + i]) {
             ++j;
-            if (j >= l) {
-                short int candidate = j / i;
-                if (candidate > *curl) {
-                    *curl = candidate;
-                    *period = i;
-                }
-                break;
-            }
             short int candidate = j / i;
             if (candidate > *curl) {
                 *curl = candidate;
                 *period = i;
+            }
+            if (j >= l) {
+                break;
             }
         }
     }
 }
 
 PROFILE
-void tail_with_periods(std::vector<short int> seq, std::vector<short int>* tail, std::vector<short int>* periods) {               // tail = {}, periods = {}
+void tail_with_periods(val_vector seq, val_vector* tail, val_vector* periods) {               // tail = {}, periods = {}
     short int curl = 1, period = 0;
-    std::vector<short int> temp = seq;
+    val_vector temp = seq;
     short int l = seq.size();
     krul(&seq, &curl, &period);
     while (curl > 1) {
@@ -98,13 +97,13 @@ void tail_with_periods(std::vector<short int> seq, std::vector<short int>* tail,
         periods->push_back(period);
         krul(&temp, &curl, &period);
     }
-    *tail = std::vector<short int>(temp.begin() + l, temp.end());
+    *tail = val_vector(temp.begin() + l, temp.end());
 }
 
 PROFILE
-void tail_with_periods_part(std::vector<short int> seq, std::vector<short int>* tail, std::vector<short int>* periods, short int i) {   // tail = {}, periods = {}
+void tail_with_periods_part(val_vector seq, val_vector* tail, val_vector* periods, short int i) {   // tail = {}, periods = {}
     short int curl = 1, period = 0;
-    std::vector<short int> temp = seq;
+    val_vector temp = seq;
     short int l = seq.size();
     krul(&seq, &curl, &period);
     while (curl > 1 and tail->size() < i) {
@@ -112,7 +111,7 @@ void tail_with_periods_part(std::vector<short int> seq, std::vector<short int>* 
         periods->push_back(period);
         krul(&temp, &curl, &period);
     }
-    *tail = std::vector<short int>(temp.begin() + l, temp.end());
+    *tail = val_vector(temp.begin() + l, temp.end());
 }
 
 PROFILE
@@ -174,8 +173,8 @@ short int real_generator_length() {
 }
 
 PROFILE
-bool check_positive(short int len) {
-    for (short int i : std::vector<short int>(Generator.begin() + length - len, Generator.end())) {
+bool check_positive(int len) {
+    for (short int i : val_vector(Generator.begin() + length - len, Generator.end())) {
         if (i < 1)
             return false;
     }
@@ -185,13 +184,13 @@ bool check_positive(short int len) {
 PROFILE
 void append() {
     Generators_memory[Periods.size()] = Generator;
-    Generator = std::vector<short int>(seq_new.begin(), seq_new.begin() + length);
+    Generator = val_vector(seq_new.begin(), seq_new.begin() + length);
 
     Tail.push_back(candidatecurl);
     Periods.push_back(candidateperiod);
 
     short int curl = 1, period = 0;
-    std::vector<short int> temp = Generator;
+    val_vector temp = Generator;
     temp.insert(temp.end(), Tail.begin(), Tail.end());
     while (true) {
         krul(&temp, &curl, &period);
@@ -206,13 +205,13 @@ void append() {
     Change_indices.insert(Tail.size());
     short int len = real_generator_length();
     if (Max_tails.back() == Tail.size()) {
-        std::vector<short int> temp = Best_generators.back();
+        val_vector temp = Best_generators.back();
         temp.insert(temp.end(), Generator.begin(), Generator.end() - len);
         Best_generators.back() = temp;
     }
     if (Max_tails[len - 1] < Tail.size()) {
         Max_tails[len - 1] = Tail.size();
-        Best_generators[len - 1] = std::vector<short int>(Generator.end() - len, Generator.end());
+        Best_generators[len - 1] = val_vector(Generator.end() - len, Generator.end());
     }
 }
 
@@ -221,7 +220,7 @@ bool test_1() {
     seq_new = Generator;
     seq_new.insert(seq_new.end(), Tail.begin(), Tail.end());
 
-    short int k = Generator.size();
+    //int k = Generator.size();
     short int l = seq_new.size();
     for (short int i = 0; i < (candidatecurl - 1) * candidateperiod; ++i) {
         short int a = seq_new[l - 1 - i];
@@ -229,13 +228,15 @@ bool test_1() {
         if (a != b and a > 0 and b > 0)
             return false;
         if (a > b) {
-            for (short int j = 0; j < k; ++j) {
+            //for (int j = 0; j < k; ++j) {
+            for (short int j = 0; j < length; ++j) {
                 if (seq_new[j] == b)
                     seq_new[j] = a;
             }
         }
         else if (a < b) {
-            for (short int j = 0; j < k; ++j) {
+            //for (int j = 0; j < k; ++j) {
+            for (short int j = 0; j < length; ++j) {
                 if (seq_new[j] == a)
                     seq_new[j] = b;
             }
@@ -247,13 +248,13 @@ bool test_1() {
 PROFILE
 bool test_2() {
     short int l = seq_new.size();
-    std::vector<short int> temp_seq = seq_new;
+    val_vector temp_seq = seq_new;
     temp_seq.push_back(candidatecurl);
-    std::vector<short int> temp_period = Periods;
+    val_vector temp_period = Periods;
     temp_period.push_back(candidateperiod);
     short int curl = 1, period = 0;
     for (short int i = 0; i <= l - length; ++i) {
-        std::vector<short int> temp = std::vector<short int>(seq_new.begin(), seq_new.begin() + length + i);
+        val_vector temp = val_vector(seq_new.begin(), seq_new.begin() + length + i);
         curl = 1, period = 0;
         krul(&temp, &curl, &period);
         if (curl != temp_seq[length + i] or period != temp_period[i])
@@ -281,6 +282,12 @@ void backtracking_step() {
 
 PROFILE
 void backtracking(short int k1, short int p1, short int k2, short int p2) {
+    Tail.reserve(300);
+    Periods.reserve(300);
+    Generator.reserve(300);
+    Max_tails.reserve(300);
+    seq_new.reserve(300);
+
     candidatecurl = k1;
     candidateperiod = p1;
     Change_indices.insert(0);
@@ -289,7 +296,7 @@ void backtracking(short int k1, short int p1, short int k2, short int p2) {
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
-    std::vector<short int> seq = Generator;
+    val_vector seq = Generator;
     seq.insert(seq.end(), Tail.begin(), Tail.end());
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -315,14 +322,14 @@ void backtracking(short int k1, short int p1, short int k2, short int p2) {
 void multi_threader() {
     std::vector<std::thread> thread_vector;
     // good values for length > 110
-    /*thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
-    thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 6));
-    thread_vector.emplace_back(std::thread(backtracking, 2, 6, 2, 20));
-    thread_vector.emplace_back(std::thread(backtracking, 2, 20, 2, 60));
-    thread_vector.emplace_back(std::thread(backtracking, 2, 60, 3, 2));
-    thread_vector.emplace_back(std::thread(backtracking, 3, 2, 4, 1));
-    thread_vector.emplace_back(std::thread(backtracking, 4, 1, 5, 1));
-    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 6));
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 6, 2, 20));
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 20, 2, 60));
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 60, 3, 2));
+    //thread_vector.emplace_back(std::thread(backtracking, 3, 2, 4, 1));
+    //thread_vector.emplace_back(std::thread(backtracking, 4, 1, 5, 1));
+    //thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
     // good values for length 80 ~ 110
     thread_vector.emplace_back(std::thread(backtracking, 2, 1, 2, 3));
     thread_vector.emplace_back(std::thread(backtracking, 2, 3, 2, 7));
@@ -331,9 +338,9 @@ void multi_threader() {
     thread_vector.emplace_back(std::thread(backtracking, 2, 40, 3, 3));
     thread_vector.emplace_back(std::thread(backtracking, 3, 3, 3, 24));
     thread_vector.emplace_back(std::thread(backtracking, 3, 24, 5, 1));
-    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));*/
-    // no poshort int in multi-threading for length < 80
-    thread_vector.emplace_back(std::thread(backtracking, 2, 1, 1000, 1000));
+    thread_vector.emplace_back(std::thread(backtracking, 5, 1, 1000, 1000));
+    // no point in multi-threading for length < 80
+    //thread_vector.emplace_back(std::thread(backtracking, 2, 1, 1000, 1000));
     for (auto& th : thread_vector) th.join();
 }
 
