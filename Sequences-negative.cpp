@@ -12,6 +12,7 @@
 #include <array>
 #include <thread>
 #include <mutex>
+#include <fstream>
 
 #define PROFILING 
 #ifdef PROFILING
@@ -19,14 +20,27 @@
 #else
 #define PROFILE  
 #endif
+
+//#define Linux
+#ifdef Linux
+std::ofstream file;
+#define FILE_OPEN file.open("Sequences.txt")
+#define OUTPUT file
+#define FILE_CLOSE file.close();
+#else
+#define FILE_OPEN   
+#define OUTPUT std::cout
+#define FILE_CLOSE  
+#endif
+
 typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-int length = 79;
+int length = 81;
 
 thread_local int candidatecurl, candidateperiod;
-thread_local val_vector Generator, seq_new, Tail, Periods, Max_tails;
+thread_local val_vector Generator, seq_new, Tail, Periods, Max_tails, seq;
 thread_local std::vector<val_vector> Best_generators;
 thread_local std::map<val_type, val_vector> Generators_memory = {};
 thread_local std::set<val_type> Change_indices = { 0 };
@@ -169,15 +183,11 @@ void append() {
         temp.push_back(curl);
         Periods.push_back(period);
     }
+
     candidatecurl = 2;
     candidateperiod = 1;
     Change_indices.insert(Tail.size());
     int len = real_generator_length();
-    if (Max_tails.back() == Tail.size()) {
-        val_vector temp = Best_generators.back();
-        temp.insert(temp.end(), Generator.begin(), Generator.end() - len);
-        Best_generators.back() = temp;
-    }
     if (Max_tails[len - 1] < Tail.size()) {
         Max_tails[len - 1] = Tail.size();
         Best_generators[len - 1] = val_vector(Generator.end() - len, Generator.end());
@@ -264,7 +274,7 @@ void backtracking(std::vector<int> params) {
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
-    val_vector seq = Generator;
+    seq = Generator;
     seq.insert(seq.end(), Tail.begin(), Tail.end());
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -282,15 +292,15 @@ void backtracking(std::vector<int> params) {
                 Global_best_generators[i] = Best_generators[i];
             }
         }
-        std::cout << "Finished: " << params[0] << ", " << params[1] << ", " << k2 << ", " << p2 << ", ";
-        std::cout << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
+        OUTPUT << "Finished: " << length << ", " << params[0] << ", " << params[1] << ", " << k2 << ", " << p2 << ", ";
+        OUTPUT << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
     }
 }
 
 void multi_threader() {
     std::vector<std::thread> thread_vector;
     std::vector<std::vector<int>> params;
-    if (length < 80) {
+    if (length <= 80) {
         params = { {2, 1, 1000, 1000} };
     }
     else if (length < 110)
@@ -304,7 +314,12 @@ void multi_threader() {
 
 int main()
 {
+    FILE_OPEN;
     auto t1 = std::chrono::high_resolution_clock::now();
+    /*for (int i = 50; i <= 100; i += 5) {
+        length = i;
+        multi_threader();
+    }*/
     multi_threader();
     auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -313,17 +328,16 @@ int main()
         if (Global_max_tails[i] > record) {
             record = Global_max_tails[i];
             if (expected_tails.find(i + 1) == expected_tails.end())
-                std::cout << "NEW:" << std::endl;
+                OUTPUT << "NEW:" << std::endl;
             else if (expected_tails[i + 1] != record)
-                std::cout << "WRONG:" << std::endl;
-            std::cout << i + 1 << ": " << record << ", [";
+                OUTPUT << "WRONG:" << std::endl;
+            OUTPUT << i + 1 << ": " << record << ", [";
             for (int x : Global_best_generators[i])
-                std::cout << x << ", ";
-            std::cout << "]" << std::endl;
+                OUTPUT << x << ",";
+            OUTPUT << "]" << std::endl;
         }
     }
-    std::cout << "Duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
-
+    FILE_CLOSE;
     //std::cout << "copies: " << copies << std::endl;
     //for (int i = 0; i < 250; ++i) {
     //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
