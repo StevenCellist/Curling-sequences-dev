@@ -79,13 +79,11 @@ PROFILE
 void krul(const val_vector& seq, int& curl, int& period) {  // curl = 1, period = 0
     curl = 1, period = 0;
     int l = seq.size();
-    const val_type* p0 = &seq[0];                           // start of sequence
-    const val_type* p1 = &seq[l - 1];                       // start of the last pattern
-    l /= 2;
-    for (int i = 1; i <= l; ++i, --p1) {
+    for (int i = 1; i <= (l / 2); ++i) {
+        const val_type* p1 = &seq[l - i];                   // start of the last pattern
         const val_type* p2 = p1 - i;                        // start of the previous pattern
-        for (int freq = 2; p2 >= p0; ++freq, p2 -= i) {
-            if (memcmp(p1, p2, i * sizeof val_type))        // doesn't match
+        for (int freq = 2; p2 >= &seq[0]; ++freq, p2 -= i) {
+            if (memcmp(p1, p2, i * sizeof(val_type)))       // doesn't match
                 break;
             if (curl < freq) {
                 curl = freq;
@@ -113,7 +111,7 @@ void up() {
     ++candidateperiod;
     while (check_period_size()) {
         ++candidatecurl;
-        candidateperiod = ceil((Periods.size()+1)/candidatecurl);
+        candidateperiod = ceil((Periods.size() + 1) / candidatecurl);
         if (check_candidatecurl_size()) {
             if (seq.size() == length) {
                 candidatecurl = 0;
@@ -127,7 +125,7 @@ void up() {
             if (index == Change_indices.end()) {
                 Change_indices.insert(k - 1);
                 candidatecurl = seq.back() + 1;
-                candidateperiod = ceil(k/candidatecurl);
+                candidateperiod = ceil(k / candidatecurl);
             }
             else {
                 candidatecurl = seq.back();
@@ -153,15 +151,6 @@ val_type real_generator_length() {
 }
 
 PROFILE
-bool check_positive(int len) {
-    for (val_type i : val_vector(seq.begin() + length - len, seq.begin() + length)) {
-        if (i < 1)
-            return false;
-    }
-    return true;
-}
-
-PROFILE
 void append() {
     Generators_memory[Periods.size()] = val_vector(seq.begin(), seq.begin() + length);
     memcpy(&seq[0], &seq_new[0], length * sizeof(val_type));    // it should have to be possible to copy length + 1 values and remove push_back below
@@ -179,7 +168,7 @@ void append() {
 
     candidatecurl = 2;
     int tail = Periods.size();
-    candidateperiod = ceil((tail+1)/2);
+    candidateperiod = ceil((tail + 1) / 2);
     Change_indices.insert(tail);
     int len = real_generator_length();
     if (Max_tails[len - 1] < tail) {
@@ -230,13 +219,8 @@ bool test_2() {
 }
 
 PROFILE
-bool check_if_period_works() {
-    return test_1() && test_2();
-}
-
-PROFILE
 void backtracking_step() {
-    if (check_if_period_works())
+    if (test_1() && test_2())
         append();
     else
         up();
@@ -292,6 +276,8 @@ void multi_threader() {
         params = { {2, 1, 2, 3}, {2, 3, 2, 7}, {2, 7, 2, 24}, {2, 24, 2, 40}, {2, 40, 3, 3}, {3, 3, 3, 24}, {3, 24, 5, 1}, {5, 1, 1000, 1000} };
     else
         params = { {2, 1, 2, 3}, {2, 3, 2, 6}, {2, 6, 2, 20}, {2, 20, 2, 60}, {2, 60, 3, 2}, {3, 2, 4, 1}, {4, 1, 5, 1}, {5, 1, 1000, 1000} };
+        //params = { {2, 1, 2, 2}, {2, 2, 2, 4}, {2, 4, 2, 7}, {2, 7, 2, 12}, {2, 12, 2, 20}, {2, 20, 2, 32}, {2, 32, 2, 64}, {2, 62, 3, 1},
+        //           {3, 1, 3, 3}, {3, 3, 3, 9}, {3, 9, 3, 28}, {3, 18, 3, 30}, {3, 30, 4, 1}, {4, 1, 5, 1}, {5, 1, 6, 2}, {6, 2, 1000, 1000}};
     for (std::vector<int> x : params)
         thread_vector.emplace_back(std::thread(backtracking, x));
     for (auto& th : thread_vector) th.join();
@@ -323,4 +309,8 @@ int main()
         }
     }
     FILE_CLOSE;
+    //std::cout << "copies: " << copies << std::endl;
+    //for (int i = 0; i < 250; ++i) {
+    //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
+    //}
 }
