@@ -34,12 +34,14 @@ std::ofstream file;
 #define PROFILE  
 #endif
 
+uint64_t t1_total(0), t1_false(0);
 typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 110;
+const int length = 100;
 
+thread_local bool swapped;
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
 thread_local std::vector<val_vector> Best_generators;
@@ -151,7 +153,8 @@ val_type real_generator_length() {
 PROFILE
 void append() {
     Generators_memory[(val_type)Periods.size()] = val_vector(seq.begin(), seq.begin() + length);
-    seq.swap(seq_new);
+    if(swapped)
+        seq.swap(seq_new);
     Periods.push_back((val_type)candidateperiod);
 
     int period = 0;
@@ -176,15 +179,26 @@ void append() {
 
 PROFILE
 bool test_1() {
-    seq_new = seq;
-    int l = (int)seq_new.size() - 1;
+    t1_total++;
+
+    int l = (int)seq.size() - 1;
     int lcp = l - candidateperiod;
     int limit = (candidatecurl - 1) * candidateperiod;
     for (int i = 0; i < limit; ++i, --l, --lcp) {
+        val_type a = seq[l];
+        val_type b = seq[lcp];
+        if (a != b and a > 0 and b > 0) {
+            t1_false++;
+            return false;
+        }
+    }
+    seq_new = seq;
+    swapped = true;
+    l = (int)seq.size() - 1;
+    lcp = l - candidateperiod;
+    for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
-        if (a != b and a > 0 and b > 0)
-            return false;
         if (a == b)
             continue;
         if (a > b)
@@ -199,16 +213,17 @@ bool test_1() {
 
 PROFILE
 bool test_2() {
-    int l = (int)seq_new.size();
-    seq_new.push_back((val_type)candidatecurl);
+    auto & s = swapped ? seq_new : seq;
+    int l = (int)s.size();
+    s.push_back((val_type)candidatecurl);
     val_vector temp_period = Periods;           // still want to get rid of this one
     temp_period.push_back((val_type)candidateperiod);
     int period = 0;
 
     for (int i = 0; i <= l - length; ++i) {
-        val_vector temp = val_vector(seq_new.begin(), seq_new.begin() + length + i);
+        val_vector temp = val_vector(s.begin(), s.begin() + length + i);
         int curl = krul(temp, period);
-        if (curl != seq_new[length + i] or period != temp_period[i])
+        if (curl != s[length + i] or period != temp_period[i])
             return false;
     }
     return true;
@@ -216,6 +231,7 @@ bool test_2() {
 
 PROFILE
 void backtracking_step() {
+    swapped = false;
     if (test_1() && test_2())
         append();
     else
@@ -297,4 +313,5 @@ int main()
         }
     }
     FILE_CLOSE;
+    std::cout << "total: " << t1_total << ", false: " << t1_false << std::endl;
 }
