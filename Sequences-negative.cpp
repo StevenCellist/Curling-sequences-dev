@@ -38,7 +38,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 100;
+const int length = 110;
 
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
@@ -76,13 +76,14 @@ std::unordered_map<int, int> expected_tails = {
 };
 
 PROFILE
-void krul(const val_vector& seq, int& curl, int& period) {  // curl = 1, period = 0
-    curl = 1, period = 0;
-    int l = seq.size();
+int krul(const val_vector& s, int& period) {  // curl = 1, period = 0
+    int curl = 1;
+    period = 0;
+    int l = (int)s.size();
     for (int i = 1; i <= (l / 2); ++i) {
-        const val_type* p1 = &seq[l - i];                   // start of the last pattern
+        const val_type* p1 = &s[l - i];                   // start of the last pattern
         const val_type* p2 = p1 - i;                        // start of the previous pattern
-        for (int freq = 2; p2 >= &seq[0]; ++freq, p2 -= i) {
+        for (int freq = 2; p2 >= &s[0]; ++freq, p2 -= i) {
             if (memcmp(p1, p2, i * sizeof(val_type)))       // doesn't match
                 break;
             if (curl < freq) {
@@ -91,6 +92,7 @@ void krul(const val_vector& seq, int& curl, int& period) {  // curl = 1, period 
             }
         }
     }
+    return curl;
 }
 
 PROFILE
@@ -117,7 +119,7 @@ void up() {
                 candidatecurl = 0;
                 break;
             }
-            int k = Periods.size();
+            val_type k = (val_type)Periods.size();
             auto index = Change_indices.find(k);
             if (index != Change_indices.end())
                 Change_indices.erase(index);
@@ -142,37 +144,32 @@ void up() {
 PROFILE
 val_type real_generator_length() {
     int i = 0;
-    while (seq[i] == (-length + i)) {
-        ++i;
-        if (i == length)
-            break;
-    }
-    return length - i;
+    while ((seq[i] == (-length + i)) && (++i != length)) {}
+    return (val_type)(length - i);
 }
 
 PROFILE
 void append() {
-    Generators_memory[Periods.size()] = val_vector(seq.begin(), seq.begin() + length);
-    memcpy(&seq[0], &seq_new[0], length * sizeof(val_type));    // it should have to be possible to copy length + 1 values and remove push_back below
-    seq.push_back(candidatecurl);
-    Periods.push_back(candidateperiod);
+    Generators_memory[(val_type)Periods.size()] = val_vector(seq.begin(), seq.begin() + length);
+    seq.swap(seq_new);
+    Periods.push_back((val_type)candidateperiod);
 
-    int curl = 1, period = 0;
+    int period = 0;
     while (true) {
-        krul(seq, curl, period);
+        int curl = krul(seq, period);
         if (curl == 1)
             break;
-        seq.push_back(curl);
-        Periods.push_back(period);
+        seq.push_back((val_type)curl);
+        Periods.push_back((val_type)period);
     }
 
     candidatecurl = 2;
-    int tail = Periods.size();
+    int tail = (int)Periods.size();
     candidateperiod = ceil((tail + 1) / 2);
-    Change_indices.insert(tail);
+    Change_indices.insert((val_type)tail);
     int len = real_generator_length();
-    if (Max_tails[len - 1] < tail) {
-        Max_tails[len - 1] = tail;
+    if (Max_tails[len - 1] < (val_type)tail) {
+        Max_tails[len - 1] = (val_type)tail;
         Best_generators[len - 1] = val_vector(seq.begin() + length - len, seq.begin() + length);
     }
 }
@@ -180,7 +177,7 @@ void append() {
 PROFILE
 bool test_1() {
     seq_new = seq;
-    int l = seq_new.size() - 1;
+    int l = (int)seq_new.size() - 1;
     int lcp = l - candidateperiod;
     int limit = (candidatecurl - 1) * candidateperiod;
     for (int i = 0; i < limit; ++i, --l, --lcp) {
@@ -202,16 +199,15 @@ bool test_1() {
 
 PROFILE
 bool test_2() {
-    int l = seq_new.size();
-    seq_new.push_back(candidatecurl);
+    int l = (int)seq_new.size();
+    seq_new.push_back((val_type)candidatecurl);
     val_vector temp_period = Periods;           // still want to get rid of this one
-    temp_period.push_back(candidateperiod);
-    int curl = 1, period = 0;
+    temp_period.push_back((val_type)candidateperiod);
+    int period = 0;
 
     for (int i = 0; i <= l - length; ++i) {
         val_vector temp = val_vector(seq_new.begin(), seq_new.begin() + length + i);
-        curl = 1, period = 0;
-        krul(temp, curl, period);
+        int curl = krul(temp, period);
         if (curl != seq_new[length + i] or period != temp_period[i])
             return false;
     }
@@ -226,22 +222,14 @@ void backtracking_step() {
         up();
 }
 
-void reserve_memory() {
-    seq.reserve(250);
-    seq_new.reserve(250);
-    Periods.reserve(250);
-    Max_tails.reserve(250);
-}
-
 PROFILE
 void backtracking(std::vector<int> params) {
-    reserve_memory();
     candidatecurl = params[0];
     candidateperiod = params[1];
     int k2 = params[2];
     int p2 = params[3];
     for (int i = 0; i < length; ++i) {
-        seq[i] = (-length + i);
+        seq[i] = (val_type)(-length + i);
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
@@ -269,10 +257,10 @@ void backtracking(std::vector<int> params) {
 void multi_threader() {
     std::vector<std::thread> thread_vector;
     std::vector<std::vector<int>> params;
-    if (length <= 80) {
+    if constexpr (length <= 80) {
         params = { {2, 1, 1000, 1000} };
     }
-    else if (length < 110)
+    else if constexpr (length <= 110)
         params = { {2, 1, 2, 3}, {2, 3, 2, 7}, {2, 7, 2, 24}, {2, 24, 2, 40}, {2, 40, 3, 3}, {3, 3, 3, 24}, {3, 24, 5, 1}, {5, 1, 1000, 1000} };
     else
         params = { {2, 1, 2, 3}, {2, 3, 2, 6}, {2, 6, 2, 20}, {2, 20, 2, 60}, {2, 60, 3, 2}, {3, 2, 4, 1}, {4, 1, 5, 1}, {5, 1, 1000, 1000} };
@@ -309,8 +297,4 @@ int main()
         }
     }
     FILE_CLOSE;
-    //std::cout << "copies: " << copies << std::endl;
-    //for (int i = 0; i < 250; ++i) {
-    //    std::cout << i << "\trows:\t" << freq_row[i] << "\t, cols: \t" << freq_col[i] << std::endl;
-    //}
 }
