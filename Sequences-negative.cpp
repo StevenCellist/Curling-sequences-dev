@@ -33,6 +33,7 @@ std::ofstream file;
 #define PROFILE  
 #endif
 
+uint64_t t1_total(0), t1_false(0);
 typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
@@ -74,16 +75,25 @@ std::unordered_map<int, int> expected_tails = {
     {149, 343}
 };
 
+bool diff(const val_type* p1, const val_type* p2, int count) {
+    while (count--) {
+        if (*p1++ != *p2++)
+            return true;
+    }
+    return false;
+}
+
 PROFILE
 int krul(const val_vector& s, int& period) {  // curl = 1, period = 0
     int curl = 1;
     period = 0;
     int l = (int)s.size();
+
     for (int i = 1; i <= (l / 2); ++i) {
-        const val_type* p1 = &s[l - i];                   // start of the last pattern
+        const val_type* p1 = &s[l - i];                     // start of the last pattern
         const val_type* p2 = p1 - i;                        // start of the previous pattern
         for (int freq = 2; p2 >= &s[0]; ++freq, p2 -= i) {
-            if (memcmp(p1, p2, i * sizeof(val_type)))       // doesn't match
+            if (diff(p1, p2, i))                            // doesn't match
                 break;
             if (curl < freq) {
                 curl = freq;
@@ -178,10 +188,22 @@ void append() {
 
 PROFILE
 bool test_1() {
-    seq_new = seq;
-    int l = (int)seq_new.size() - 1;
+    //t1_total++;
+
+    int l = (int)seq.size() - 1;
     int lcp = l - candidateperiod;
     int limit = (candidatecurl - 1) * candidateperiod;
+    for (int i = 0; i < limit; ++i, --l, --lcp) {
+        val_type a = seq[l];
+        val_type b = seq[lcp];
+        if (a != b and a > 0 and b > 0) {
+            //t1_false++;
+            return false;
+        }
+    }
+    seq_new = seq;
+    l = (int)seq.size() - 1;
+    lcp = l - candidateperiod;
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
@@ -299,4 +321,5 @@ int main()
         }
     }
     FILE_CLOSE;
+    //std::cout << "total: " << t1_total << ", false: " << t1_false << std::endl;
 }
