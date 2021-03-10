@@ -12,7 +12,6 @@
 #include <array>
 #include <thread>
 #include <mutex>
-#include <cmath>
 
 #define PROFILING 
 
@@ -123,7 +122,8 @@ void up() {
     ++candidateperiod;
     while (check_period_size()) {
         ++candidatecurl;
-        candidateperiod = ceil((Periods.size() + 1) / candidatecurl);
+        candidateperiod = (Periods.size() + 1) / candidatecurl;
+        if ((Periods.size()+1)%candidatecurl==0){candidateperiod++;}
         if (check_candidatecurl_size()) {
             if (seq.size() == length) {
                 candidatecurl = 0;
@@ -137,7 +137,8 @@ void up() {
             if (index == Change_indices.end()) {
                 Change_indices.insert(k - 1);
                 candidatecurl = seq.back() + 1;
-                candidateperiod = ceil(k / candidatecurl);
+                candidateperiod = k / candidatecurl;
+                if (k%candidatecurl==0){candidateperiod++;}
             }
             else {
                 candidatecurl = seq.back();
@@ -175,7 +176,8 @@ void append() {
 
     candidatecurl = 2;
     int tail = (int)Periods.size();
-    candidateperiod = ceil((tail + 1) / 2);
+    candidateperiod = (tail + 1) / 2;
+    if ((tail+1)%2==0) {candidateperiod++;}
     Change_indices.insert((val_type)tail);
     int len = real_generator_length();
     if (Max_tails[len - 1] < (val_type)tail) {
