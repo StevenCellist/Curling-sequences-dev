@@ -76,16 +76,25 @@ std::unordered_map<int, int> expected_tails = {
     {149, 343}
 };
 
+bool diff(const val_type* p1, const val_type* p2, int count) {
+    while (count--) {
+        if (*p1++ != *p2++)
+            return true;
+    }
+    return false;
+}
+
 PROFILE
 int krul(const val_vector& s, int& period) {  // curl = 1, period = 0
     int curl = 1;
     period = 0;
     int l = (int)s.size();
+
     for (int i = 1; i <= (l / 2); ++i) {
-        const val_type* p1 = &s[l - i];                   // start of the last pattern
+        const val_type* p1 = &s[l - i];                     // start of the last pattern
         const val_type* p2 = p1 - i;                        // start of the previous pattern
         for (int freq = 2; p2 >= &s[0]; ++freq, p2 -= i) {
-            if (memcmp(p1, p2, i * sizeof(val_type)))       // doesn't match
+            if (diff(p1, p2, i))                            // doesn't match
                 break;
             if (curl < freq) {
                 curl = freq;
