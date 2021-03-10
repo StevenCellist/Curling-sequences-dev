@@ -12,7 +12,6 @@
 #include <array>
 #include <thread>
 #include <mutex>
-#include <cmath>
 
 #define PROFILING 
 
