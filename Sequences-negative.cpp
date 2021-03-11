@@ -38,7 +38,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 110;
+const int length = 100;
 
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
@@ -72,7 +72,12 @@ std::unordered_map<int, int> expected_tails = {
     {128, 332},
     {132, 340},
     {133, 342},
-    {149, 343}
+    {149, 343},
+    {154, 356},
+    {176, 406},
+    {197, 1668},
+    {198, 1669},
+    {200, 1670}
 };
 
 bool diff(const val_type* p1, const val_type* p2, int count) {
@@ -104,12 +109,10 @@ int krul(const val_vector& s, int& period) {  // curl = 1, period = 0
     return curl;
 }
 
-PROFILE
 bool check_period_size() {
     return (candidatecurl * candidateperiod) > seq.size();
 }
 
-PROFILE
 bool check_candidatecurl_size() {
     if (seq.size() > length)
         return candidatecurl > seq.back() + 1;
@@ -122,8 +125,7 @@ void up() {
     ++candidateperiod;
     while (check_period_size()) {
         ++candidatecurl;
-        candidateperiod = (Periods.size() + 1) / candidatecurl;
-        if ((Periods.size()+1)%candidatecurl==0){candidateperiod++;}
+        candidateperiod = 1 + Periods.size() / candidatecurl;
         if (check_candidatecurl_size()) {
             if (seq.size() == length) {
                 candidatecurl = 0;
@@ -137,8 +139,7 @@ void up() {
             if (index == Change_indices.end()) {
                 Change_indices.insert(k - 1);
                 candidatecurl = seq.back() + 1;
-                candidateperiod = k / candidatecurl;
-                if (k%candidatecurl==0){candidateperiod++;}
+                candidateperiod = 1 + (k - 1) / candidatecurl;
             }
             else {
                 candidatecurl = seq.back();
@@ -152,7 +153,6 @@ void up() {
     }
 }
 
-PROFILE
 val_type real_generator_length() {
     int i = 0;
     while ((seq[i] == (-length + i)) && (++i != length)) {}
@@ -176,8 +176,7 @@ void append() {
 
     candidatecurl = 2;
     int tail = (int)Periods.size();
-    candidateperiod = (tail + 1) / 2;
-    if ((tail+1)%2==0) {candidateperiod++;}
+    candidateperiod = 1 + tail / 2;
     Change_indices.insert((val_type)tail);
     int len = real_generator_length();
     if (Max_tails[len - 1] < (val_type)tail) {
@@ -225,7 +224,7 @@ PROFILE
 bool test_2() {
     int l = (int)seq_new.size();
     seq_new.push_back((val_type)candidatecurl);
-    val_vector temp_period = Periods;           // still want to get rid of this one
+    val_vector temp_period = Periods;
     temp_period.push_back((val_type)candidateperiod);
     int period = 0;
 
@@ -284,7 +283,7 @@ void multi_threader() {
     if constexpr (length <= 80) {
         params = { {2, 1, 1000, 1000} };
     }
-    else if constexpr (length <= 110)
+    else if constexpr (length < 110)
         params = { {2, 1, 2, 3}, {2, 3, 2, 7}, {2, 7, 2, 24}, {2, 24, 2, 40}, {2, 40, 3, 3}, {3, 3, 3, 24}, {3, 24, 5, 1}, {5, 1, 1000, 1000} };
     else
         params = { {2, 1, 2, 3}, {2, 3, 2, 6}, {2, 6, 2, 20}, {2, 20, 2, 60}, {2, 60, 3, 2}, {3, 2, 4, 1}, {4, 1, 5, 1}, {5, 1, 1000, 1000} };
