@@ -33,12 +33,11 @@ std::ofstream file;
 #define PROFILE  
 #endif
 
-uint64_t t1_total(0), t1_false(0);
 typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 100;
+const int length = 130;
 
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
@@ -89,10 +88,9 @@ bool diff(const val_type* p1, const val_type* p2, int count) {
 }
 
 PROFILE
-int krul(const val_vector& s, int& period) {  // curl = 1, period = 0
+int krul(const val_vector& s, int& period, int l) {  // curl = 1, period = 0
     int curl = 1;
     period = 0;
-    int l = (int)s.size();
 
     for (int i = 1; i <= (l / 2); ++i) {
         const val_type* p1 = &s[l - i];                     // start of the last pattern
@@ -161,13 +159,15 @@ val_type real_generator_length() {
 
 PROFILE
 void append() {
-    Generators_memory[(val_type)Periods.size()] = val_vector(seq.begin(), seq.begin() + length);
+    seq.resize(length);
+    Generators_memory[(val_type)Periods.size()].swap(seq);
+
     seq.swap(seq_new);
     Periods.push_back((val_type)candidateperiod);
 
     int period = 0;
     while (true) {
-        int curl = krul(seq, period);
+        int curl = krul(seq, period, (int)seq.size());
         if (curl == 1)
             break;
         seq.push_back((val_type)curl);
@@ -187,7 +187,6 @@ void append() {
 
 PROFILE
 bool test_1() {
-    //t1_total++;
 
     int l = (int)seq.size() - 1;
     int lcp = l - candidateperiod;
@@ -195,26 +194,37 @@ bool test_1() {
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq[l];
         val_type b = seq[lcp];
-        if (a != b and a > 0 and b > 0) {
-            //t1_false++;
+        if (a != b and a > 0 and b > 0)
             return false;
-        }
     }
     seq_new = seq;
     l = (int)seq.size() - 1;
     lcp = l - candidateperiod;
+
+    int jmax = length - 1;      // get the index of the last negative value in seq_new to limit r=the for loop below
+    for (; jmax > 0; --jmax) {
+        if (seq_new[jmax] < 0)
+            break;
+    }
+
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
-        if (a != b and a > 0 and b > 0)
-            return false;
-        if (a == b)
-            continue;
-        if (a > b)
-            std::swap(a, b); // a is now always < b
-        for (int j = 0; j < length; ++j) {
-            if (seq_new[j] == a)
-                seq_new[j] = b;
+        if (a != b) {
+            if (a > 0 and b > 0)
+                return false;
+            if (a > b)
+                std::swap(a, b); // a is now always < b
+            for (int j = 0; j <= jmax; ++j) {   // don't need to loop through positive values.
+                if (seq_new[j] == a) {
+                    seq_new[j] = b;
+                    if (j == jmax)
+                        for (--jmax; jmax > 0; --jmax) {
+                            if (seq_new[jmax] < 0)
+                                break;
+                        }
+                }
+            }
         }
     }
     return true;
@@ -229,8 +239,7 @@ bool test_2() {
     int period = 0;
 
     for (int i = 0; i <= l - length; ++i) {
-        val_vector temp = val_vector(seq_new.begin(), seq_new.begin() + length + i);
-        int curl = krul(temp, period);
+        int curl = krul(seq_new, period, length + i);
         if (curl != seq_new[length + i] or period != temp_period[i])
             return false;
     }
