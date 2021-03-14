@@ -37,7 +37,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 130;
+const int length = 80;
 
 thread_local int candidatecurl, candidateperiod;
 thread_local val_vector seq(length), seq_new, Periods, Max_tails;
@@ -45,8 +45,8 @@ thread_local std::vector<val_vector> Best_generators;
 thread_local std::map<val_type, val_vector> Generators_memory = {};
 thread_local std::set<val_type> Change_indices = { 0 };
 
-val_vector Global_max_tails(250, 0);
-std::vector<val_vector> Global_best_generators(250);
+val_vector Global_max_tails(length, 0);
+std::vector<val_vector> Global_best_generators(length);
 std::mutex m_tails;
 
 std::unordered_map<int, int> expected_tails = {
@@ -88,27 +88,24 @@ bool diff(const val_type* p1, const val_type* p2, int count) {
 }
 
 PROFILE
-int krul(const val_vector& s, int& period, int l) {  // curl = 1, period = 0
-    int curl = 1;
-    period = 0;
-
-    for (int i = 1; i <= (l / 2); ++i) {
+int krul(const val_vector& s, int& period, int l) {
+    int curl = 1;                                           // base value for curl
+    period = 0;                                             // this is redundant but does speed up by 4%(?!)
+    int limit = l / 2;                                      // limit up to which to check for repetition
+    for (int i = 1; i <= limit; ++i) {                      // check for repetition up to the limit
         const val_type* p1 = &s[l - i];                     // start of the last pattern
         const val_type* p2 = p1 - i;                        // start of the previous pattern
         for (int freq = 2; p2 >= &s[0]; ++freq, p2 -= i) {
             if (diff(p1, p2, i))                            // doesn't match
                 break;
-            if (curl < freq) {
-                curl = freq;
-                period = i;
+            if (curl < freq) {                              // found better curl?
+                curl = freq;                                // update curl
+                limit = l / (curl + 1);                     // update limit
+                period = i;                                 // update period
             }
         }
     }
     return curl;
-}
-
-bool check_period_size() {
-    return (candidatecurl * candidateperiod) > seq.size();
 }
 
 bool check_candidatecurl_size() {
@@ -121,7 +118,7 @@ bool check_candidatecurl_size() {
 PROFILE
 void up() {
     ++candidateperiod;
-    while (check_period_size()) {
+    while ((candidatecurl * candidateperiod) > seq.size()) {
         ++candidatecurl;
         candidateperiod = 1 + Periods.size() / candidatecurl;
         if (check_candidatecurl_size()) {
@@ -151,10 +148,10 @@ void up() {
     }
 }
 
-val_type real_generator_length() {
+int real_generator_length() {       // returns the index of the last unique value of the generator
     int i = 0;
     while ((seq[i] == (-length + i)) && (++i != length)) {}
-    return (val_type)(length - i);
+    return (length - i);
 }
 
 PROFILE
@@ -201,7 +198,7 @@ bool test_1() {
     l = (int)seq.size() - 1;
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;      // get the index of the last negative value in seq_new to limit r=the for loop below
+    int jmax = length - 1;      // get the index of the last negative value in seq_new to limit the for loop below
     for (; jmax > 0; --jmax) {
         if (seq_new[jmax] < 0)
             break;
@@ -248,33 +245,34 @@ bool test_2() {
 
 PROFILE
 void backtracking_step() {
-    if (test_1() && test_2())
-        append();
+    if (test_1() && test_2())   // depending on whether the sequence will improve the tail length...
+        append();               // we make the tail longer if it passed the checks
     else
-        up();
+        up();                   // or we upgrade the generator if they failed
 }
 
 PROFILE
 void backtracking(std::vector<int> params) {
-    candidatecurl = params[0];
-    candidateperiod = params[1];
-    int k2 = params[2];
-    int p2 = params[3];
-    for (int i = 0; i < length; ++i) {
+    candidatecurl = params[0];                          // start-value for first curl of the tail
+    candidateperiod = params[1];                        // start-value for period of first curl of the tail
+    int k2 = params[2];                                 // stop-value for first curl of the tail
+    int p2 = params[3];                                 // stop-value for period of first curl of the tail
+
+    for (int i = 0; i < length; ++i) {                  // initiate sequence and its thread-local companions
         seq[i] = (val_type)(-length + i);
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    while (candidatecurl) {
+    while (candidatecurl) {                             // perform backtracking while we are within thread value boundaries
         if (seq.size() == length and candidatecurl == k2 and candidateperiod == p2)
             break;
         backtracking_step();
     }
     auto t2 = std::chrono::high_resolution_clock::now();
     {
-        std::lock_guard<std::mutex> l(m_tails);
+        std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
         for (int i = 0; i < length; ++i) {
             if (Max_tails[i] > Global_max_tails[i]) {
                 Global_max_tails[i] = Max_tails[i];
@@ -288,29 +286,25 @@ void backtracking(std::vector<int> params) {
 
 void multi_threader() {
     std::vector<std::thread> thread_vector;
-    std::vector<std::vector<int>> params;
-    if constexpr (length <= 80) {
+    std::vector<std::vector<int>> params;   // parameters per thread
+    if constexpr (length <= 80)             // for easy debugging and fast benchmarking
         params = { {2, 1, 1000, 1000} };
-    }
-    else if constexpr (length < 110)
+    else if constexpr (length < 110)        // for small multi-threaded runs
         params = { {2, 1, 2, 3}, {2, 3, 2, 7}, {2, 7, 2, 24}, {2, 24, 2, 40}, {2, 40, 3, 3}, {3, 3, 3, 24}, {3, 24, 5, 1}, {5, 1, 1000, 1000} };
-    else
+    else                                    // 8- or 16-threaded parameters for long runs
         params = { {2, 1, 2, 3}, {2, 3, 2, 6}, {2, 6, 2, 20}, {2, 20, 2, 60}, {2, 60, 3, 2}, {3, 2, 4, 1}, {4, 1, 5, 1}, {5, 1, 1000, 1000} };
-        //params = { {2, 1, 2, 2}, {2, 2, 2, 4}, {2, 4, 2, 7}, {2, 7, 2, 12}, {2, 12, 2, 20}, {2, 20, 2, 32}, {2, 32, 2, 64}, {2, 62, 3, 1},
-        //           {3, 1, 3, 3}, {3, 3, 3, 9}, {3, 9, 3, 28}, {3, 18, 3, 30}, {3, 30, 4, 1}, {4, 1, 5, 1}, {5, 1, 6, 2}, {6, 2, 1000, 1000}};
-    for (std::vector<int> x : params)
+    //params = { {2, 1, 2, 2}, {2, 2, 2, 4}, {2, 4, 2, 7}, {2, 7, 2, 12}, {2, 12, 2, 25}, {2, 25, 2, 60}, {2, 60, 2, 100}, {2, 100, 3, 1},
+    //           {3, 1, 3, 3}, {3, 3, 3, 20}, {3, 20, 3, 60}, {3, 60, 4, 2}, {4, 2, 5, 1}, {5, 1, 6, 3}, {6, 2, 7, 1}, {7, 1, 1000, 1000}};
+    for (std::vector<int> x : params) 
         thread_vector.emplace_back(std::thread(backtracking, x));
-    for (auto& th : thread_vector) th.join();
+    for (auto& th : thread_vector) 
+        th.join();
 }
 
 int main()
 {
     FILE_OPEN;
     auto t1 = std::chrono::high_resolution_clock::now();
-    /*for (int i = 50; i <= 100; i += 5) {
-        length = i;
-        multi_threader();
-    }*/
     multi_threader();
     auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -329,5 +323,4 @@ int main()
         }
     }
     FILE_CLOSE;
-    //std::cout << "total: " << t1_total << ", false: " << t1_false << std::endl;
 }
