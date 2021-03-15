@@ -47,8 +47,8 @@ thread_local std::vector<val_vector> Best_generators;
 thread_local std::map<val_type, val_vector> Generators_memory = {};
 thread_local std::set<val_type> Change_indices = { 0 };
 
-val_vector Global_max_tails(length, 0);
-std::vector<val_vector> Global_best_generators(length);
+val_vector Global_max_tails(length + 1, 0);
+std::vector<val_vector> Global_best_generators(length + 1);
 std::mutex m_tails, m_kp;
 
 int k1 = 2, p1 = 1;
@@ -92,29 +92,33 @@ PROFILE
 void up() {
     ++candidateperiod;                                              // try period one larger now
     while (true) {
-        if (!Periods.size()) break;                                 // stop if tail is empty
-        if ((candidatecurl * candidateperiod) <= seq.size()) break; // if this pair is within sequence size, we can break and try that instead
-        ++candidatecurl;                                            // if not, we increase the curl to try and calculate its period
-        candidateperiod = 1 + Periods.size() / candidatecurl;
-        if (candidatecurl > seq.back() + 1) {                       // if curl > (last_curl + 1), the sequence will have to change if it should become better
-            val_type k = (val_type)Periods.size();
-            auto index = Change_indices.find(k - 1);                // we will have to change the for-last curl in order to change the tail, so let's see if it hasn't been done yet
+        if (!Periods.size())                                        // stop if tail is empty
+            break;                                 
+        if ((candidatecurl * candidateperiod) <= seq.size())        // if this pair is within sequence size, we can break and try that instead
+            break; 
+        if (candidatecurl > seq.back()) {                           // if curl > last_curl, the sequence will have to change if it wants to become better
+            val_type k = (val_type)Periods.size() - 1;              // we will have to change the for-last curl in order to change the tail, 
+            auto index = Change_indices.find(k);                    // so let's check whether it has been done yet
             if (index == Change_indices.end()) {                    // didn't find it?
-                Change_indices.insert(k - 1);                       // insert it and let's try increased curl with new period
+                Change_indices.insert(k);                           // insert it and let's try increased curl with new period
                 candidatecurl = seq.back() + 1;
-                candidateperiod = 1 + (k - 1) / candidatecurl;
+                candidateperiod = 1 + k / candidatecurl;
             }
             else {                                                  // did find it?
                 candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = Periods.back() + 1;
-                memcpy(&seq[0], &Generators_memory[k - 1][0], length * sizeof(val_type)); // retrieve the original generator from memory
-                Generators_memory.erase(k - 1);                     // and delete it
+                memcpy(&seq[0], &Generators_memory[k][0], length * sizeof(val_type)); // retrieve the original generator from memory
+                Generators_memory.erase(k);                         // and delete it
             }
             seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
             Periods.pop_back();
-            index = Change_indices.find(k);
+            index = Change_indices.find(k + 1);
             if (index != Change_indices.end())
                 Change_indices.erase(index);
+        }
+        else {
+            ++candidatecurl;                                        // if not, we increase the curl to try and calculate its period
+            candidateperiod = 1 + (int)Periods.size() / candidatecurl;
         }
     }
 }
@@ -129,7 +133,6 @@ PROFILE
 void append() {
     seq.resize(length);                                     // discard the tail so we can swap it into the memory
     Generators_memory[(val_type)Periods.size()].swap(seq);
-
     seq.swap(seq_new);                                      // retrieve the new sequence from test_2
     Periods.push_back((val_type)candidateperiod);
 
@@ -146,10 +149,10 @@ void append() {
     candidatecurl = 2;                                      // prepare candidates for next backtracking_step
     candidateperiod = 1 + tail / 2;
     Change_indices.insert((val_type)tail);                  // to improve generator, we would have to take note of the index where the 1 occured
-    int len = real_generator_length();
-    if (Max_tails[len - 1] < (val_type)tail) {
-        Max_tails[len - 1] = (val_type)tail;
-        Best_generators[len - 1] = val_vector(seq.begin() + length - len, seq.begin() + length);
+    int len = real_generator_length();                      // retrieve actual generator length
+    if (Max_tails[len] < (val_type)tail) {                  // and update maximum values for this thread
+        Max_tails[len] = (val_type)tail;
+        Best_generators[len] = val_vector(seq.begin() + length - len, seq.begin() + length);
     }
 }
 
@@ -174,7 +177,6 @@ bool test_1() {
         if (seq_new[jmax] < 0)
             break;
     }
-
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
@@ -224,12 +226,10 @@ void backtracking_step() {
 
 PROFILE
 void backtracking() {
-
-    for (int i = 0; i < length; ++i) {                  // initiate thread-local record vectors
+    for (int i = 0; i <= length; ++i) {                  // initiate thread-local record vectors
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
-
     auto t1 = std::chrono::high_resolution_clock::now();
     while (true) {
         {
@@ -252,7 +252,7 @@ void backtracking() {
     }
     {
         std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
-        for (int i = 0; i < length; ++i) {
+        for (int i = 0; i <= length; ++i) {
             if (Max_tails[i] > Global_max_tails[i]) {
                 Global_max_tails[i] = Max_tails[i];
                 Global_best_generators[i] = Best_generators[i];
@@ -282,14 +282,14 @@ int main()
     auto t2 = std::chrono::high_resolution_clock::now();
 
     int record = 0;
-    for (int i = 0; i < length; ++i) {
+    for (int i = 0; i <= length; ++i) {
         if (Global_max_tails[i] > record) {
             record = Global_max_tails[i];
-            if (expected_tails.find(i + 1) == expected_tails.end())
+            if (expected_tails.find(i) == expected_tails.end())
                 OUTPUT << "NEW:" << std::endl;
-            else if (expected_tails[i + 1] != record)
+            else if (expected_tails[i] != record)
                 OUTPUT << "WRONG:" << std::endl;
-            OUTPUT << i + 1 << ": " << record << ", [";
+            OUTPUT << i << ": " << record << ", [";
             for (int x : Global_best_generators[i])
                 OUTPUT << x << ",";
             OUTPUT << "]" << std::endl;
