@@ -205,15 +205,15 @@ PROFILE
 bool test_2() {
     int l = (int)seq_new.size();
     seq_new.push_back((val_type)candidatecurl);                             // add the candidates because we passed test_1
-    val_vector temp_period = Periods;
-    temp_period.push_back((val_type)candidateperiod);
     int period = 0;
-    for (int i = 0; i <= l - length; ++i) {                                 // check within tail for a valid curl or period
+
+    for (int i = 0; i < l - length; ++i) {                                  // check within tail for a valid curl or period
         int curl = krul(seq_new, period, length + i, seq_new[length + i]);  // calculate curl and period up to this part of the sequence
-        if (curl != seq_new[length + i] or period != temp_period[i])        // if the curl or its period are not related, the tail will not improve
+        if (curl != seq_new[length + i] or period != Periods[i])            // if the curl or its period are not related, the tail will not improve
             return false;
     }
-    return true;
+    int curl = krul(seq_new, period, l, seq_new[l]);
+    return (curl == seq_new[l] and period == candidateperiod);
 }
 
 PROFILE
