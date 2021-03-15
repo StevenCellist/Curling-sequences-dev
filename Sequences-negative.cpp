@@ -12,7 +12,6 @@
 #include <array>
 #include <thread>
 #include <mutex>
-#include <atomic>
 
 #define PROFILING 
 
@@ -27,6 +26,7 @@
 #endif
 #else // gcc (Linux)
 #include <fstream>
+#include <cstring>      // gcc requires that for memcpy()
 std::ofstream file;
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
@@ -38,7 +38,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 80;
+const int length = 130;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -49,12 +49,12 @@ thread_local std::set<val_type> Change_indices = { 0 };
 
 val_vector Global_max_tails(length, 0);
 std::vector<val_vector> Global_best_generators(length);
-std::mutex m_tails, m_candidates;
+std::mutex m_tails, m_candidates, m_kp;
 
-std::atomic<int> k1 = 2;
-std::atomic<int> p1 = 1;
-int k2 = 1000;
-int p2 = 1000;
+int k1 = 2;
+int p1 = 1;
+const int k2 = 1000;
+const int p2 = 1000;
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},  {22, 120}, 
@@ -240,14 +240,25 @@ void backtracking() {
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    while (k1 != k2) {
-        candidatecurl = k1;                                 // start-value for first curl of the tail
-        candidateperiod = p1;
-        if (++p1 == p2) {
-            p1 = 1;
-            ++k1;
+    // while (k1 != k2) {
+    //     candidatecurl = k1;                                 // start-value for first curl of the tail
+    //     candidateperiod = p1;
+    //     if (++p1 == p2) {
+    //         p1 = 1;
+    //         ++k1;
+    //     }
+    while(true) {
+        {
+            std::lock_guard<std::mutex> l(m_kp);            // lock k1 and p1
+            if(k1 == k2)
+                break;
+            candidatecurl = k1;                                 // start-value for first curl of the tail
+            candidateperiod = p1;
+            if (++p1 == p2) {
+                p1 = 1;
+                ++k1;
+            }
         }
-
         for (int i = 0; i < length; ++i)                    // initiate sequence
             seq[i] = (val_type)(-length + i);
 
