@@ -26,7 +26,7 @@
 #endif
 #else // gcc (Linux)
 #include <fstream>
-#include <cstring>      // gcc requires that for memcpy()
+#include <cstring>
 std::ofstream file;
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
@@ -38,7 +38,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 130;
+const int length = 80;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -49,12 +49,10 @@ thread_local std::set<val_type> Change_indices = { 0 };
 
 val_vector Global_max_tails(length, 0);
 std::vector<val_vector> Global_best_generators(length);
-std::mutex m_tails, m_candidates, m_kp;
+std::mutex m_tails, m_kp;
 
-int k1 = 2;
-int p1 = 1;
-const int k2 = 1000;
-const int p2 = 1000;
+int k1 = 2, p1 = 1;
+const int k2 = 1000, p2 = 1000;
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},  {22, 120}, 
@@ -136,14 +134,14 @@ int real_generator_length() {       // returns the index of the last unique valu
 
 PROFILE
 void append() {
-    seq.resize(length);
+    seq.resize(length);                                     // discard the tail so we can swap it into the memory
     Generators_memory[(val_type)Periods.size()].swap(seq);
 
-    seq.swap(seq_new);
+    seq.swap(seq_new);                                      // retrieve the new sequence from test_2
     Periods.push_back((val_type)candidateperiod);
 
     int period = 0;
-    while (true) {
+    while (true) {                                          // build the tail for this generator
         int curl = krul(seq, period, (int)seq.size(), 2);
         if (curl == 1)
             break;
@@ -151,10 +149,10 @@ void append() {
         Periods.push_back((val_type)period);
     }
 
-    candidatecurl = 2;
-    int tail = (int)Periods.size();
+    int tail = (int)Periods.size();                         // find tail size (seq.size() - length)
+    candidatecurl = 2;                                      // prepare candidates for next backtracking_step
     candidateperiod = 1 + tail / 2;
-    Change_indices.insert((val_type)tail);
+    Change_indices.insert((val_type)tail);                  // to improve generator, we would have to take note of the index where the 1 occured
     int len = real_generator_length();
     if (Max_tails[len - 1] < (val_type)tail) {
         Max_tails[len - 1] = (val_type)tail;
@@ -163,22 +161,22 @@ void append() {
 }
 
 PROFILE
+// this function checks whether the current sequence allows for the candidates to be added
 bool test_1() {
-
-    int l = (int)seq.size() - 1;
-    int lcp = l - candidateperiod;
-    int limit = (candidatecurl - 1) * candidateperiod;
+    int l = (int)seq.size() - 1;                        // last element of pattern to check
+    int lcp = l - candidateperiod;                      // last element of potential pattern
+    int limit = (candidatecurl - 1) * candidateperiod;  // limit to which to check for repetition
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq[l];
         val_type b = seq[lcp];
-        if (a != b and a > 0 and b > 0)
+        if (a != b and a > 0 and b > 0)                 // check whether the repetition may be possible
             return false;
     }
-    seq_new = seq;
-    l = (int)seq.size() - 1;
+    seq_new = seq;                                      // create dummy sequence
+    l = (int)seq.size() - 1;                            // reset pattern values
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;      // get the index of the last negative value in seq_new to limit the for loop below
+    int jmax = length - 1;                              // get the index of the last negative value in seq_new to limit the for loop below
     for (; jmax > 0; --jmax) {
         if (seq_new[jmax] < 0)
             break;
@@ -187,15 +185,15 @@ bool test_1() {
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
-        if (a != b) {
+        if (a != b) {                                   // because we are changing values below, we may encounter a possible break, again
             if (a > 0 and b > 0)
                 return false;
             if (a > b)
-                std::swap(a, b); // a is now always < b
-            for (int j = 0; j <= jmax; ++j) {   // don't need to loop through positive values.
+                std::swap(a, b);                        // a is now always < b and < 0
+            for (int j = 0; j <= jmax; ++j) {           // don't need to loop through positive values.
                 if (seq_new[j] == a) {
                     seq_new[j] = b;
-                    if (j == jmax)
+                    if (j == jmax)                      // check whether we can break early
                         for (--jmax; jmax > 0; --jmax) {
                             if (seq_new[jmax] < 0)
                                 break;
@@ -208,16 +206,16 @@ bool test_1() {
 }
 
 PROFILE
+// this function checks whether the tail will contain anything meaningful
 bool test_2() {
     int l = (int)seq_new.size();
-    seq_new.push_back((val_type)candidatecurl);
+    seq_new.push_back((val_type)candidatecurl);                             // add the candidates because we passed test_1
     val_vector temp_period = Periods;
     temp_period.push_back((val_type)candidateperiod);
     int period = 0;
-
-    for (int i = 0; i <= l - length; ++i) {
-        int curl = krul(seq_new, period, length + i, seq_new[length + i]);
-        if (curl != seq_new[length + i] or period != temp_period[i])
+    for (int i = 0; i <= l - length; ++i) {                                 // check within tail for a valid curl or period
+        int curl = krul(seq_new, period, length + i, seq_new[length + i]);  // calculate curl and period up to this part of the sequence
+        if (curl != seq_new[length + i] or period != temp_period[i])        // if the curl or its period are not related, the tail will not improve
             return false;
     }
     return true;
@@ -240,17 +238,10 @@ void backtracking() {
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    // while (k1 != k2) {
-    //     candidatecurl = k1;                                 // start-value for first curl of the tail
-    //     candidateperiod = p1;
-    //     if (++p1 == p2) {
-    //         p1 = 1;
-    //         ++k1;
-    //     }
-    while(true) {
+    while (true) {
         {
             std::lock_guard<std::mutex> l(m_kp);            // lock k1 and p1
-            if(k1 == k2)
+            if (k1 == k2)
                 break;
             candidatecurl = k1;                                 // start-value for first curl of the tail
             candidateperiod = p1;
@@ -265,14 +256,13 @@ void backtracking() {
         backtracking_step();                                // perform backtracking for this combination (k1, p1)
         while (seq.size() != length)
             backtracking_step();
-        
-        {
-            std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
-            for (int i = 0; i < length; ++i) {
-                if (Max_tails[i] > Global_max_tails[i]) {
-                    Global_max_tails[i] = Max_tails[i];
-                    Global_best_generators[i] = Best_generators[i];
-                }
+    }
+    {
+        std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
+        for (int i = 0; i < length; ++i) {
+            if (Max_tails[i] > Global_max_tails[i]) {
+                Global_max_tails[i] = Max_tails[i];
+                Global_best_generators[i] = Best_generators[i];
             }
         }
     }
