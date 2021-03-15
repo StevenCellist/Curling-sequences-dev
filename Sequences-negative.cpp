@@ -211,16 +211,15 @@ PROFILE
 bool test_2() {
     int l = (int)seq_new.size();
     seq_new.push_back((val_type)candidatecurl);
-    val_vector temp_period = Periods;
-    temp_period.push_back((val_type)candidateperiod);
     int period = 0;
 
-    for (int i = 0; i <= l - length; ++i) {
+    for (int i = 0; i < l - length; ++i) {
         int curl = krul(seq_new, period, length + i, seq_new[length + i]);
-        if (curl != seq_new[length + i] or period != temp_period[i])
+        if (curl != seq_new[length + i] or period != Periods[i])
             return false;
     }
-    return true;
+    int curl = krul(seq_new, period, l, seq_new[l]);
+    return (curl == seq_new[l] and period == candidateperiod);
 }
 
 PROFILE
