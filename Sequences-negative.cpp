@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 15-03-2021; completed time to length 48: 0.7 second*
+// Current version: 15-03-2021; completed time to length 48: 0.5 second*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
 #include <iostream>
@@ -88,40 +88,33 @@ int krul(const val_vector& s, int& period, int l, int minimum) {
     return curl;
 }
 
-bool check_candidatecurl_size() {
-    if (seq.size() > length)
-        return candidatecurl > seq.back() + 1;
-    else
-        return candidatecurl > length;
-}
-
 PROFILE
 void up() {
-    ++candidateperiod;
-    while ((candidatecurl * candidateperiod) > seq.size()) {
-        ++candidatecurl;
+    ++candidateperiod;                                              // try period one larger now
+    while (true) {
+        if (!Periods.size()) break;                                 // stop if tail is empty
+        if ((candidatecurl * candidateperiod) <= seq.size()) break; // if this pair is within sequence size, we can break and try that instead
+        ++candidatecurl;                                            // if not, we increase the curl to try and calculate its period
         candidateperiod = 1 + Periods.size() / candidatecurl;
-        if (check_candidatecurl_size()) {
-            if (seq.size() == length)
-                break;
+        if (candidatecurl > seq.back() + 1) {                       // if curl > (last_curl + 1), the sequence will have to change if it should become better
             val_type k = (val_type)Periods.size();
-            auto index = Change_indices.find(k);
-            if (index != Change_indices.end())
-                Change_indices.erase(index);
-            index = Change_indices.find(k - 1);
-            if (index == Change_indices.end()) {
-                Change_indices.insert(k - 1);
+            auto index = Change_indices.find(k - 1);                // we will have to change the for-last curl in order to change the tail, so let's see if it hasn't been done yet
+            if (index == Change_indices.end()) {                    // didn't find it?
+                Change_indices.insert(k - 1);                       // insert it and let's try increased curl with new period
                 candidatecurl = seq.back() + 1;
                 candidateperiod = 1 + (k - 1) / candidatecurl;
             }
-            else {
-                candidatecurl = seq.back();
+            else {                                                  // did find it?
+                candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = Periods.back() + 1;
-                memcpy(&seq[0], &Generators_memory[k - 1][0], length * sizeof(val_type));
-                Generators_memory.erase(k - 1);
+                memcpy(&seq[0], &Generators_memory[k - 1][0], length * sizeof(val_type)); // retrieve the original generator from memory
+                Generators_memory.erase(k - 1);                     // and delete it
             }
-            seq.pop_back();
+            seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
             Periods.pop_back();
+            index = Change_indices.find(k);
+            if (index != Change_indices.end())
+                Change_indices.erase(index);
         }
     }
 }
@@ -163,20 +156,20 @@ void append() {
 PROFILE
 // this function checks whether the current sequence allows for the candidates to be added
 bool test_1() {
-    int l = (int)seq.size() - 1;                        // last element of pattern to check
-    int lcp = l - candidateperiod;                      // last element of potential pattern
-    int limit = (candidatecurl - 1) * candidateperiod;  // limit to which to check for repetition
+    int l = (int)seq.size() - 1;                            // last element of pattern to check
+    int lcp = l - candidateperiod;                          // last element of potential pattern
+    int limit = (candidatecurl - 1) * candidateperiod;      // limit to which to check for repetition
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq[l];
         val_type b = seq[lcp];
-        if (a != b and a > 0 and b > 0)                 // check whether the repetition may be possible
+        if (a != b and a > 0 and b > 0)                     // check whether the repetition may be possible
             return false;
     }
-    seq_new = seq;                                      // create dummy sequence
-    l = (int)seq.size() - 1;                            // reset pattern values
+    seq_new = seq;                                          // create dummy sequence
+    l = (int)seq.size() - 1;                                // reset pattern values
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;                              // get the index of the last negative value in seq_new to limit the for loop below
+    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for loop below
     for (; jmax > 0; --jmax) {
         if (seq_new[jmax] < 0)
             break;
@@ -185,15 +178,15 @@ bool test_1() {
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         val_type a = seq_new[l];
         val_type b = seq_new[lcp];
-        if (a != b) {                                   // because we are changing values below, we may encounter a possible break, again
+        if (a != b) {                                       // because we are changing values below, we may encounter a possible break, again
             if (a > 0 and b > 0)
                 return false;
             if (a > b)
-                std::swap(a, b);                        // a is now always < b and < 0
-            for (int j = 0; j <= jmax; ++j) {           // don't need to loop through positive values.
+                std::swap(a, b);                            // a is now always < b and < 0
+            for (int j = 0; j <= jmax; ++j) {               // don't need to loop through positive values.
                 if (seq_new[j] == a) {
                     seq_new[j] = b;
-                    if (j == jmax)                      // check whether we can break early
+                    if (j == jmax)                          // check whether we can break earlier
                         for (--jmax; jmax > 0; --jmax) {
                             if (seq_new[jmax] < 0)
                                 break;
@@ -232,7 +225,7 @@ void backtracking_step() {
 PROFILE
 void backtracking() {
 
-    for (int i = 0; i < length; ++i) {                      // initiate thread-local record vectors
+    for (int i = 0; i < length; ++i) {                  // initiate thread-local record vectors
         Max_tails.push_back(0);
         Best_generators.push_back({});
     }
@@ -240,21 +233,21 @@ void backtracking() {
     auto t1 = std::chrono::high_resolution_clock::now();
     while (true) {
         {
-            std::lock_guard<std::mutex> l(m_kp);            // lock k1 and p1
+            std::lock_guard<std::mutex> l(m_kp);        // lock k1 and p1
             if (k1 == k2)
                 break;
-            candidatecurl = k1;                                 // start-value for first curl of the tail
-            candidateperiod = p1;
+            candidatecurl = k1;                         // value for first curl of the tail
+            candidateperiod = p1;                       // value for period of this curl
             if (++p1 == p2) {
                 p1 = 1;
                 ++k1;
             }
         }
-        for (int i = 0; i < length; ++i)                    // initiate sequence
+        for (int i = 0; i < length; ++i)                // initiate sequence
             seq[i] = (val_type)(-length + i);
 
-        backtracking_step();                                // perform backtracking for this combination (k1, p1)
-        while (seq.size() != length)
+        backtracking_step();                            // perform backtracking for this combination (k1, p1)
+        while (Periods.size())
             backtracking_step();
     }
     {
