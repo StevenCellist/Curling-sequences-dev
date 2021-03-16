@@ -254,17 +254,15 @@ void backtracking() {
             candidatecurl = k1;                         // value for first curl of the tail
             candidateperiod = p1;                       // value for period of this curl
             int limit = length / k1;
-            if (++p1 == limit) {
-                p1 = 1;
-                ++k1;
+            if (++p1 > limit) {                         // gone out of range?
+                p1 = 1;                                 // reset period
+                ++k1;                                   // try new curl
             }
         }
         for (int i = 0; i < length; ++i)                // initiate sequence
             seq[i] = (val_type)(-length + i);
-
+        
         backtracking_step();                            // perform backtracking for this combination (k1, p1)
-        if (!Periods.size()) 
-            k1++;                                       // if this combination did not yield a result in the beginning, continue to k1 + 1
         while (Periods.size())
             backtracking_step();
     }
