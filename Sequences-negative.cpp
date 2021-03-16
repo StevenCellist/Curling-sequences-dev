@@ -38,7 +38,7 @@ typedef int16_t val_type;
 typedef std::vector<val_type> val_vector;
 using namespace std::chrono;
 
-const int length = 80;
+const int length = 100;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -52,7 +52,6 @@ std::vector<val_vector> Global_best_generators(length + 1);
 std::mutex m_tails, m_kp;
 
 int k1 = 2, p1 = 1;
-const int k2 = 1000, p2 = 1000;
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},  {22, 120}, 
@@ -61,9 +60,25 @@ std::unordered_map<int, int> expected_tails = {
 };
 
 bool diff(const val_type* p1, const val_type* p2, int count) {
-    while (count--) {
-        if (*p1++ != *p2++)
-            return true;
+    int count64 = count / 4; // assume 16-bit int
+    if (count64) {
+        uint64_t* p1_64 = (uint64_t*)p1;
+        uint64_t* p2_64 = (uint64_t*)p2;
+        while (count64--) {
+            if (*p1_64++ != *p2_64++)
+                return true;
+        }
+    }
+
+    int count4 = count % 4;
+    if (count4) {
+        int offset = (count / 4) * 4;
+        p1 += offset;
+        p2 += offset;
+        while (count4--) {
+            if (*p1++ != *p2++)
+                return true;
+        }
     }
     return false;
 }
@@ -93,7 +108,7 @@ void up() {
     ++candidateperiod;                                              // try period one larger now
     while (true) {
         if (!Periods.size())                                        // stop if tail is empty
-            break;                                 
+            break;
         if ((candidatecurl * candidateperiod) <= seq.size())        // if this pair is within sequence size, we can break and try that instead
             break; 
         if (candidatecurl > seq.back()) {                           // if curl > last_curl, the sequence will have to change if it wants to become better
@@ -234,11 +249,12 @@ void backtracking() {
     while (true) {
         {
             std::lock_guard<std::mutex> l(m_kp);        // lock k1 and p1
-            if (k1 == k2)
+            if (k1 > length)
                 break;
             candidatecurl = k1;                         // value for first curl of the tail
             candidateperiod = p1;                       // value for period of this curl
-            if (++p1 == p2) {
+            int limit = length / k1;
+            if (++p1 == limit) {
                 p1 = 1;
                 ++k1;
             }
@@ -247,6 +263,8 @@ void backtracking() {
             seq[i] = (val_type)(-length + i);
 
         backtracking_step();                            // perform backtracking for this combination (k1, p1)
+        if (!Periods.size()) 
+            k1++;                                       // if this combination did not yield a result in the beginning, continue to k1 + 1
         while (Periods.size())
             backtracking_step();
     }
