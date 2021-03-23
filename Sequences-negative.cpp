@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 140;
+const int length = 100;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -73,9 +73,9 @@ bool diff(const int16_t* p1, const int16_t* p2, int count) {
     return false;
 }
 
-int krul(const val_vector& s, int& period, int l) {
-    int curl = 1;                                           // base value for curl
-    int limit = l / 2;                                      // limit up to which to check for repetition
+int krul(const val_vector& s, int& period, int l, int minimum) {
+    int curl = minimum - 1;                                 // base value for curl
+    int limit = l / minimum;                                // limit up to which to check for repetition
     for (int i = 1; i <= limit; ++i) {                      // check for repetition up to the limit
         const int16_t* p1 = &s[l - i];                      // start of the last pattern
         const int16_t* p2 = p1 - i;                         // start of the previous pattern
@@ -140,7 +140,7 @@ void append() {
 
     int period = 0;
     while (true) {                                          // build the tail for this generator
-        int curl = krul(seq, period, (int)seq.size());
+        int curl = krul(seq, period, (int)seq.size(), 2);
         if (curl == 1)
             break;
         seq.push_back((int16_t)curl);
@@ -158,7 +158,7 @@ void append() {
     }
 }
 
-int get_first_index(const val_vector& s) {                  // returns the index of the first modofied value of the generator
+int get_first_index(const val_vector& s) {                  // returns the index of the first modified value of the generator
     int i = 0;
     while ((s[i] == (-length + i)) && (++i != length)) {}
     return i;
@@ -179,13 +179,12 @@ bool test_1() {
     l = (int)seq.size() - 1;                                // reset pattern values
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for loop below
+    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for-loop below
     for (; jmax > 0; --jmax) {
         if (seq_new[jmax] < 0)
             break;
     }
     int first = get_first_index(seq_new);
-
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         int16_t a = seq_new[l];
         int16_t b = seq_new[lcp];
@@ -216,12 +215,12 @@ bool test_2() {
     int period = 0;
 
     for (int i = 0; i < l - length; ++i) {                                  // check within tail for a valid curl or period
-        int curl = krul(seq_new, period, length + i);                       // calculate curl and period up to this part of the sequence
+        int curl = krul(seq_new, period, length + i, seq_new[length + i]);  // calculate curl and period up to this part of the sequence
         if (curl != seq_new[length + i] or period != periods[i])            // if the curl or its period are not related, the tail will not improve
             return false;
     }
-    int curl = krul(seq_new, period, l);
-    return (curl == seq_new[l] and period == candidateperiod);
+    int curl = krul(seq_new, period, l, candidatecurl);
+    return (curl == candidatecurl and period == candidateperiod);
 }
 
 void backtracking_step() {
