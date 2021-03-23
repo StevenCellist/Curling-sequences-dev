@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 140;
+const int length = 160;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -36,6 +36,8 @@ thread_local val_vector seq(length), seq_new, periods, max_tails;
 thread_local std::vector<val_vector> best_generators;
 thread_local std::map<int16_t, val_vector> generators_memory = {};
 thread_local std::set<int16_t> change_indices = { 0 };
+thread_local uint64_t c1(0), c2(0);
+uint64_t g_c1(0), g_c2(0);
 
 val_vector g_max_tails(length + 1, 0);
 std::vector<val_vector> g_best_generators(length + 1);
@@ -93,6 +95,7 @@ int krul(const val_vector& s, int& period, int l) {
 }
 
 void up() {
+    c1++;
     ++candidateperiod;                                              // try period one larger now
     while (true) {
         if (periods.empty())                                        // stop if tail is empty
@@ -111,6 +114,7 @@ void up() {
                 candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = periods.back() + 1;
                 memcpy(&seq[0], &generators_memory[k][0], length * sizeof(int16_t)); // retrieve the original generator from memory
+                c2++;
                 generators_memory.erase(k);                         // and delete it
             }
             seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
@@ -265,6 +269,9 @@ void backtracking() {
                 g_best_generators[i] = best_generators[i];
             }
         }
+        g_c1 += c1;
+        g_c2 += c2;
+        std::cout << "c1: " << c1 << ", c2: " << c2 << std::endl;
     }
     auto t2 = std::chrono::high_resolution_clock::now();
     OUTPUT << "Finished: " << length << ", " << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " msec" << std::endl;
@@ -303,4 +310,5 @@ int main()
         }
     }
     FILE_CLOSE;
+    std::cout << "c1: " << g_c1 << ", c2: " << g_c2 << std::endl;
 }
