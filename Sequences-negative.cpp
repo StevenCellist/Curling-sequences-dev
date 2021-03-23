@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 100;
+const int length = 140;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -158,6 +158,12 @@ void append() {
     }
 }
 
+int get_first_index(const val_vector& s) {                  // returns the index of the first modofied value of the generator
+    int i = 0;
+    while ((s[i] == (-length + i)) && (++i != length)) {}
+    return i;
+}
+
 // this function checks whether the current sequence allows for the candidates to be added
 bool test_1() {
     int l = (int)seq.size() - 1;                            // last element of pattern to check
@@ -173,11 +179,13 @@ bool test_1() {
     l = (int)seq.size() - 1;                                // reset pattern values
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for-loop below
+    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for loop below
     for (; jmax > 0; --jmax) {
         if (seq_new[jmax] < 0)
             break;
     }
+    int first = get_first_index(seq_new);
+
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         int16_t a = seq_new[l];
         int16_t b = seq_new[lcp];
@@ -186,11 +194,11 @@ bool test_1() {
                 return false;
             if (a > b)
                 std::swap(a, b);                            // a is now always < b and < 0
-            for (int j = 0; j <= jmax; ++j) {               // don't need to loop through positive values.
+            for (int j = std::min(first, lcp); j <= jmax; ++j) {    // don't need to loop through positive values at the end or unique at the start
                 if (seq_new[j] == a) {
                     seq_new[j] = b;
                     if (j == jmax)                          // check whether we can break earlier
-                        for (--jmax; jmax > 0; --jmax) {
+                        for (--jmax; jmax > first; --jmax) {
                             if (seq_new[jmax] < 0)
                                 break;
                         }
