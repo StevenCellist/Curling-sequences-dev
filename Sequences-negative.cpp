@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 100;
+const int length = 80;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -36,6 +36,8 @@ thread_local val_vector seq(length), seq_new, periods, max_tails;
 thread_local std::vector<val_vector> best_generators;
 thread_local std::map<int16_t, val_vector> generators_memory = {};
 thread_local std::set<int16_t> change_indices = { 0 };
+thread_local std::map<int16_t, val_vector> seq_map;
+thread_local std::multimap<int, int> pairs = {};
 
 val_vector g_max_tails(length + 1, 0);
 std::vector<val_vector> g_best_generators(length + 1);
@@ -112,9 +114,22 @@ void up() {
                 candidateperiod = periods.back() + 1;
                 memcpy(&seq[0], &generators_memory[k][0], length * sizeof(int16_t)); // retrieve the original generator from memory
                 generators_memory.erase(k);                         // and delete it
+
+                seq_map.clear();
+                for (int j = 0; j < seq.size(); ++j)
+                    seq_map[seq[j]].push_back(j);
+                // TODO: only replace first 'length' elements (or maybe only the ones that changed?)
+
             }
+
+
+            auto it = seq_map.find(seq.back());
+            auto ind2 = std::find(it->second.begin(), it->second.end(), seq.size() - 1);
+            seq_map[seq.back()].erase(ind2);
+
             seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
             periods.pop_back();
+
             index = change_indices.find(k + 1);
             if (index != change_indices.end())
                 change_indices.erase(index);
@@ -133,18 +148,26 @@ int real_generator_length() {       // returns the index of the last unique valu
 }
 
 void append() {
+    for (auto pair : pairs) {
+        for (int x : seq_map[pair.second]) {
+            seq_map[pair.first].push_back(x);
+        }
+        seq_map.erase(pair.second);
+    }
     seq.resize(length);                                     // discard the tail so we can swap it into the memory
     generators_memory[(int16_t)periods.size()].swap(seq);
     seq.swap(seq_new);                                      // retrieve the new sequence from test_2
     periods.push_back((int16_t)candidateperiod);
-
+    seq_map[candidatecurl].push_back(seq.size() - 1);
     int period = 0;
     while (true) {                                          // build the tail for this generator
         int curl = krul(seq, period, (int)seq.size(), 2);
         if (curl == 1)
             break;
+        seq_map[curl].push_back(seq.size());
         seq.push_back((int16_t)curl);
         periods.push_back((int16_t)period);
+
     }
 
     int tail = (int)periods.size();                         // find tail size (seq.size() - length)
@@ -176,14 +199,10 @@ bool test_1() {
             return false;
     }
     seq_new = seq;                                          // create dummy sequence
+    pairs = {};
     l = (int)seq.size() - 1;                                // reset pattern values
     lcp = l - candidateperiod;
 
-    int jmax = length - 1;                                  // get the index of the last negative value in seq_new to limit the for-loop below
-    for (; jmax > 0; --jmax) {
-        if (seq_new[jmax] < 0)
-            break;
-    }
     int first = get_first_index(seq_new);
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         int16_t a = seq_new[l];
@@ -193,14 +212,19 @@ bool test_1() {
                 return false;
             if (a > b)
                 std::swap(a, b);                            // a is now always < b and < 0
-            for (int j = std::min(first, lcp); j <= jmax; ++j) {    // don't need to loop through positive values at the end or unique at the start
-                if (seq_new[j] == a) {
-                    seq_new[j] = b;
-                    if (j == jmax)                          // check whether we can break earlier
-                        for (--jmax; jmax > first; --jmax) {
-                            if (seq_new[jmax] < 0)
-                                break;
-                        }
+            pairs.insert({ b, a });
+
+            std::vector<int> temp = { a };
+            for (int index = 0; index < temp.size(); index++) {
+                for (auto pair : pairs) {
+                    if (pair.first == temp[index])
+                        temp.push_back(pair.second);
+                }
+            }
+            for (int x : temp) {
+                auto it = seq_map.find(x);
+                for (auto ind : it->second) {
+                    seq_new[ind] = b;
                 }
             }
         }
@@ -211,7 +235,7 @@ bool test_1() {
 // this function checks whether the proposed change invalidates the generator (regarding curl or period)
 bool test_2() {
     int l = (int)seq_new.size();
-    seq_new.push_back((int16_t)candidatecurl);                              // add the candidates because we passed test_1
+    seq_new.push_back((int16_t)candidatecurl);                              // add the candidates because we passed test_1 TODO: move to append()
     int period = 0;
 
     for (int i = 0; i < l - length; ++i) {                                  // check within tail for a valid curl or period
@@ -251,6 +275,10 @@ void backtracking() {
         }
         for (int i = 0; i < length; ++i)                // initiate sequence
             seq[i] = (int16_t)(-length + i);
+
+        seq_map.clear();
+        for (int j = 0; j < length; ++j)
+            seq_map[seq[j]].push_back(j);
 
         backtracking_step();                            // perform backtracking for this combination (g_k1, g_p1)
         while (periods.size())
