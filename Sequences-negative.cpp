@@ -37,7 +37,7 @@ thread_local std::vector<val_vector> best_generators;
 thread_local std::map<int16_t, val_vector> generators_memory = {};
 thread_local std::set<int16_t> change_indices = { 0 };
 thread_local std::map<int16_t, val_vector> seq_map;
-thread_local std::multimap<int, int> pairs = {};
+thread_local val_vector pairs = {};
 
 val_vector g_max_tails(length + 1, 0);
 std::vector<val_vector> g_best_generators(length + 1);
@@ -112,20 +112,21 @@ void up() {
             else {                                                  // did find it?
                 candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = periods.back() + 1;
-                memcpy(&seq[0], &generators_memory[k][0], length * sizeof(int16_t)); // retrieve the original generator from memory
-                generators_memory.erase(k);                         // and delete it
 
-                seq_map.clear();
-                for (int j = 0; j < seq.size(); ++j)
-                    seq_map[seq[j]].push_back(j);
-                // TODO: only replace first 'length' elements (or maybe only the ones that changed?)
-
+                val_vector temp = generators_memory[k];             // retrieve generator from memory
+                for (int i = 0; i < length; i++) {
+                    if (seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
+                        auto ind = std::find(begin(seq_map[seq[i]]), end(seq_map[seq[i]]), i);
+                        seq_map[seq[i]].erase(ind);
+                        seq_map[temp[i]].push_back(i);
+                        seq[i] = temp[i];
+                    }
+                }
+                generators_memory.erase(k);                         // and delete memory entry
             }
 
-
-            auto it = seq_map.find(seq.back());
-            auto ind2 = std::find(it->second.begin(), it->second.end(), seq.size() - 1);
-            seq_map[seq.back()].erase(ind2);
+            auto ind = std::find(begin(seq_map[seq.back()]), end(seq_map[seq.back()]), seq.size() - 1);
+            seq_map[seq.back()].erase(ind);                         // delete the last curl index from the map
 
             seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
             periods.pop_back();
@@ -148,11 +149,11 @@ int real_generator_length() {       // returns the index of the last unique valu
 }
 
 void append() {
-    for (auto pair : pairs) {
-        for (int x : seq_map[pair.second]) {
-            seq_map[pair.first].push_back(x);
+    for (int i = 0; i < pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
+        for (int x : seq_map[pairs[i + 1]]) {
+            seq_map[pairs[i]].push_back(x);                 // so we move all changed values to their new location
         }
-        seq_map.erase(pair.second);
+        seq_map.erase(pairs[i + 1]);                        // and delete their previous entries
     }
     seq.resize(length);                                     // discard the tail so we can swap it into the memory
     generators_memory[(int16_t)periods.size()].swap(seq);
@@ -181,12 +182,6 @@ void append() {
     }
 }
 
-int get_first_index(const val_vector& s) {                  // returns the index of the first modified value of the generator
-    int i = 0;
-    while ((s[i] == (-length + i)) && (++i != length)) {}
-    return i;
-}
-
 // this function checks whether the current sequence allows for the candidates to be added
 bool test_1() {
     int l = (int)seq.size() - 1;                            // last element of pattern to check
@@ -199,11 +194,10 @@ bool test_1() {
             return false;
     }
     seq_new = seq;                                          // create dummy sequence
-    pairs = {};
+    pairs.clear();
     l = (int)seq.size() - 1;                                // reset pattern values
     lcp = l - candidateperiod;
 
-    int first = get_first_index(seq_new);
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         int16_t a = seq_new[l];
         int16_t b = seq_new[lcp];
@@ -212,18 +206,18 @@ bool test_1() {
                 return false;
             if (a > b)
                 std::swap(a, b);                            // a is now always < b and < 0
-            pairs.insert({ b, a });
+            pairs.push_back(b);                             // add (b, a) combo to the pairs
+            pairs.push_back(a);
 
-            std::vector<int> temp = { a };
-            for (int index = 0; index < temp.size(); index++) {
-                for (auto pair : pairs) {
-                    if (pair.first == temp[index])
-                        temp.push_back(pair.second);
+            std::vector<int> temp = { a };                      // temporary vector that will hold all map values that need to be changed
+            for (int index = 0; index < temp.size(); index++) { // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
+                for (int i = 0; i < pairs.size(); i += 2) {     // if we change a to b, and later change b, we also need to change a in that case
+                    if (pairs[i] == temp[index])                // so we need to check if we already crossed the value b
+                        temp.push_back(pairs[i + 1]);
                 }
             }
-            for (int x : temp) {
-                auto it = seq_map.find(x);
-                for (auto ind : it->second) {
+            for (int x : temp) {                                // apply changes to sequence
+                for (int ind : seq_map[x]) {
                     seq_new[ind] = b;
                 }
             }
