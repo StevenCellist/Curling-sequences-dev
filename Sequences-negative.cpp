@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 80;
+const int length = 140;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -38,6 +38,7 @@ thread_local std::map<int16_t, val_vector> generators_memory = {};
 thread_local std::set<int16_t> change_indices = { 0 };
 thread_local std::map<int16_t, val_vector> seq_map;
 thread_local val_vector pairs = {};
+thread_local std::vector<int> temp;                      // temporary vector that will hold all map values that need to be changed
 
 val_vector g_max_tails(length + 1, 0);
 std::vector<val_vector> g_best_generators(length + 1);
@@ -113,11 +114,18 @@ void up() {
                 candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = periods.back() + 1;
 
-                val_vector temp = generators_memory[k];             // retrieve generator from memory
+                val_vector& temp = generators_memory[k];             // retrieve generator from memory
                 for (int i = 0; i < length; i++) {
                     if (seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
-                        auto ind = std::find(begin(seq_map[seq[i]]), end(seq_map[seq[i]]), i);
-                        seq_map[seq[i]].erase(ind);
+                        //auto ind = std::find(begin(seq_map[seq[i]]), end(seq_map[seq[i]]), i);
+                        //seq_map[seq[i]].erase(ind);
+                        for(auto& x: seq_map[seq[i]])
+                            if (x == i) {
+                                x = seq_map[seq[i]].back();         // use last value
+                                break;
+                            }
+                        seq_map[seq[i]].pop_back();                 // remove (now duplicated) last value
+
                         seq_map[temp[i]].push_back(i);
                         seq[i] = temp[i];
                     }
@@ -209,7 +217,8 @@ bool test_1() {
             pairs.push_back(b);                             // add (b, a) combo to the pairs
             pairs.push_back(a);
 
-            std::vector<int> temp = { a };                      // temporary vector that will hold all map values that need to be changed
+            temp.clear();
+            temp.push_back(a);                      // temporary vector that will hold all map values that need to be changed
             for (int index = 0; index < temp.size(); index++) { // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
                 for (int i = 0; i < pairs.size(); i += 2) {     // if we change a to b, and later change b, we also need to change a in that case
                     if (pairs[i] == temp[index])                // so we need to check if we already crossed the value b
