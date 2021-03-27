@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 80;
+const int length = 140;
 const int thread_count = std::thread::hardware_concurrency();
 
 thread_local int candidatecurl, candidateperiod;
@@ -123,7 +123,6 @@ void up() {
                                 break;
                             }
                         seq_map[seq[i] + length].pop_back();                 // remove (now duplicated) last value
-
                         seq_map[temp[i] + length].push_back(i);
                         seq[i] = temp[i];
                     }
