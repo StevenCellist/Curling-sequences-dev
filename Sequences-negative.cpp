@@ -114,15 +114,15 @@ void up() {
                 candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
                 candidateperiod = periods.back() + 1;
 
-                val_vector& temp = generators_memory[k];             // retrieve generator from memory
+                val_vector& temp = generators_memory[k];            // retrieve generator from memory
                 for (int i = 0; i < length; i++) {
                     if (seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
                         for (int& x : seq_map[seq[i] + length])
                             if (x == i) {
-                                x = seq_map[seq[i] + length].back();         // use last value
+                                x = seq_map[seq[i] + length].back();// use last value
                                 break;
                             }
-                        seq_map[seq[i] + length].pop_back();                 // remove (now duplicated) last value
+                        seq_map[seq[i] + length].pop_back();        // remove (now duplicated) last value
                         seq_map[temp[i] + length].push_back(i);
                         seq[i] = temp[i];
                     }
@@ -131,8 +131,7 @@ void up() {
             }
 
             auto ind = std::find(begin(seq_map[seq.back() + length]), end(seq_map[seq.back() + length]), seq.size() - 1);
-            seq_map[seq.back() + length].erase(ind);                         // delete the last curl index from the map
-
+            seq_map[seq.back() + length].erase(ind);                // delete the last curl index from the map
             seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
             periods.pop_back();
 
@@ -155,14 +154,14 @@ int real_generator_length() {       // returns the index of the last unique valu
 
 void append() {
     for (int i = 0; i < pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
-        for (int x : seq_map[pairs[i + 1] + length]) {
-            seq_map[pairs[i] + length].push_back(x);                 // so we move all changed values to their new location
-        }
-        seq_map[pairs[i + 1] + length].clear();                        // and delete their previous entries
+        for (int x : seq_map[pairs[i + 1] + length])
+            seq_map[pairs[i] + length].push_back(x);        // so we move all changed values to their new location
+        seq_map[pairs[i + 1] + length].clear();             // and delete their previous entries
     }
     seq.resize(length);                                     // discard the tail so we can swap it into the memory
     generators_memory[(int16_t)periods.size()].swap(seq);
     seq.swap(seq_new);                                      // retrieve the new sequence from test_2
+    seq.push_back((int16_t)candidatecurl);                  // add the candidates because we passed test_1 and test_2
     periods.push_back((int16_t)candidateperiod);
     seq_map[candidatecurl + length].push_back(seq.size() - 1);
     int period = 0;
@@ -215,18 +214,14 @@ bool test_1() {
             pairs.push_back(a);
 
             temp.clear();
-            temp.push_back(a);                      // temporary vector that will hold all map values that need to be changed
-            for (int index = 0; index < temp.size(); index++) { // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
-                for (int i = 0; i < pairs.size(); i += 2) {     // if we change a to b, and later change b, we also need to change a in that case
+            temp.push_back(a);                                  // temporary vector that will hold all map values that need to be changed
+            for (int index = 0; index < temp.size(); index++)   // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
+                for (int i = 0; i < pairs.size(); i += 2)       // if we change a to b, and later change b, we also need to change a in that case
                     if (pairs[i] == temp[index])                // so we need to check if we already crossed the value b
                         temp.push_back(pairs[i + 1]);
-                }
-            }
-            for (int x : temp) {                                // apply changes to sequence
-                for (int ind : seq_map[x + length]) {
+            for (int x : temp)                              // apply changes to sequence
+                for (int ind : seq_map[x + length])
                     seq_new[ind] = b;
-                }
-            }
         }
     }
     return true;
@@ -235,7 +230,6 @@ bool test_1() {
 // this function checks whether the proposed change invalidates the generator (regarding curl or period)
 bool test_2() {
     int l = (int)seq_new.size();
-    seq_new.push_back((int16_t)candidatecurl);                              // add the candidates because we passed test_1 TODO: move to append()
     int period = 0;
 
     for (int i = 0; i < l - length; ++i) {                                  // check within tail for a valid curl or period
