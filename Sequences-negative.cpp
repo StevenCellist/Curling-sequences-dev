@@ -81,8 +81,8 @@ bool diff(const int16_t* p1, const int16_t* p2, int count) {
 int krul(const val_vector& s, int& period, int l, int minimum) {
     int curl = minimum - 1;                                 // base value for curl
     int limit = l / minimum;                                // limit up to which to check for repetition
-    for (int i = 1; i <= limit; ++i) {                      // check for repetition up to the limit
-        const int16_t* p1 = &s[l - i];                      // start of the last pattern
+    const int16_t* p1 = &s[l - 1];                      // start of the last pattern
+    for (int i = 1; i <= limit; ++i, --p1) {                      // check for repetition up to the limit
         const int16_t* p2 = p1 - i;                         // start of the previous pattern
         for (int freq = 2; p2 >= &s[0]; ++freq, p2 -= i) {
             if (diff(p1, p2, i))                            // doesn't match
