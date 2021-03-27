@@ -21,7 +21,7 @@
 #include <fstream>
 #include <cstring>
 std::ofstream file;
-#define FILE_OPEN file.open("Sequences.txt", ios_base::out | ios_base::app)
+#define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
 #define FILE_CLOSE file.close();
 #endif
@@ -31,14 +31,16 @@ typedef std::vector<int16_t> val_vector;
 const int length = 140;
 const int thread_count = std::thread::hardware_concurrency();
 
-thread_local int candidatecurl, candidateperiod;
-thread_local val_vector seq(length), seq_new, periods, max_tails;
-thread_local std::vector<val_vector> best_generators;
-thread_local std::map<int16_t, val_vector> generators_memory = {};
-thread_local std::set<int16_t> change_indices = { 0 };
-thread_local std::vector<std::vector<int>> seq_map(2 * length + 2); // adjust for + 1 index on positive and negative side
-thread_local val_vector pairs = {};
-thread_local std::vector<int> temp;
+struct context {
+    int candidatecurl, candidateperiod;
+    val_vector seq = val_vector(length), seq_new, periods, max_tails;
+    std::vector<val_vector> best_generators;
+    std::map<int16_t, val_vector> generators_memory;
+    std::set<int16_t> change_indices = { 0 };
+    std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
+    val_vector pairs;
+    std::vector<int> temp;
+};
 
 val_vector g_max_tails(length + 1, 0);
 std::vector<val_vector> g_best_generators(length + 1);
@@ -95,163 +97,164 @@ int krul(const val_vector& s, int& period, int l, int minimum) {
     return curl;
 }
 
-void up() {
-    ++candidateperiod;                                              // try period one larger now
+void up(context& ctx) {
+    ++ctx.candidateperiod;                                              // try period one larger now
     while (true) {
-        if (periods.empty())                                        // stop if tail is empty
+        if (ctx.periods.empty())                                        // stop if tail is empty
             break;
-        if ((candidatecurl * candidateperiod) <= seq.size())        // if this pair is within sequence size, we can break and try that instead
+        if ((ctx.candidatecurl * ctx.candidateperiod) <= ctx.seq.size())        // if this pair is within sequence size, we can break and try that instead
             break;
-        if (candidatecurl > seq.back()) {                           // if curl > last_curl, the sequence will have to change if it wants to become better
-            int16_t k = (int16_t)periods.size() - 1;                // we will have to change the for-last curl in order to change the tail, 
-            auto index = change_indices.find(k);                    // so let's check whether it has been done yet
-            if (index == change_indices.end()) {                    // didn't find it?
-                change_indices.insert(k);                           // insert it and let's try increased curl with new period
-                candidatecurl = seq.back() + 1;
-                candidateperiod = 1 + k / candidatecurl;
+        if (ctx.candidatecurl > ctx.seq.back()) {                           // if curl > last_curl, the sequence will have to change if it wants to become better
+            int16_t k = (int16_t)ctx.periods.size() - 1;                // we will have to change the for-last curl in order to change the tail, 
+            auto index = ctx.change_indices.find(k);                    // so let's check whether it has been done yet
+            if (index == ctx.change_indices.end()) {                    // didn't find it?
+                ctx.change_indices.insert(k);                           // insert it and let's try increased curl with new period
+                ctx.candidatecurl = ctx.seq.back() + 1;
+                ctx.candidateperiod = 1 + k / ctx.candidatecurl;
             }
             else {                                                  // did find it?
-                candidatecurl = seq.back();                         // let's try this same curl but now with one higher period
-                candidateperiod = periods.back() + 1;
+                ctx.candidatecurl = ctx.seq.back();                         // let's try this same curl but now with one higher period
+                ctx.candidateperiod = ctx.periods.back() + 1;
 
-                val_vector& temp = generators_memory[k];            // retrieve generator from memory
+                val_vector& temp = ctx.generators_memory[k];            // retrieve generator from memory
                 for (int i = 0; i < length; i++) {
-                    if (seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
-                        for (int& x : seq_map[seq[i] + length])
+                    if (ctx.seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
+                        for (int& x : ctx.seq_map[ctx.seq[i] + length])
                             if (x == i) {
-                                x = seq_map[seq[i] + length].back();// use last value
+                                x = ctx.seq_map[ctx.seq[i] + length].back();// use last value
                                 break;
                             }
-                        seq_map[seq[i] + length].pop_back();        // remove (now duplicated) last value
-                        seq_map[temp[i] + length].push_back(i);
-                        seq[i] = temp[i];
+                        ctx.seq_map[ctx.seq[i] + length].pop_back();        // remove (now duplicated) last value
+                        ctx.seq_map[temp[i] + length].push_back(i);
+                        ctx.seq[i] = temp[i];
                     }
                 }
-                generators_memory.erase(k);                         // and delete memory entry
+                ctx.generators_memory.erase(k);                         // and delete memory entry
             }
 
-            auto ind = std::find(begin(seq_map[seq.back() + length]), end(seq_map[seq.back() + length]), seq.size() - 1);
-            seq_map[seq.back() + length].erase(ind);                // delete the last curl index from the map
-            seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
-            periods.pop_back();
+            auto ind = std::find(ctx.seq_map[ctx.seq.back() + length].begin(), ctx.seq_map[ctx.seq.back() + length].end(), ctx.seq.size() - 1);
+            ctx.seq_map[ctx.seq.back() + length].erase(ind);                // delete the last curl index from the map
+            ctx.seq.pop_back();                                         // delete the last curl and its period from the tail, and delete entry from the changed indices
+            ctx.periods.pop_back();
 
-            index = change_indices.find(k + 1);
-            if (index != change_indices.end())
-                change_indices.erase(index);
+            index = ctx.change_indices.find(k + 1);
+            if (index != ctx.change_indices.end())
+                ctx.change_indices.erase(index);
         }
         else {
-            ++candidatecurl;                                        // if not, we increase the curl to try and calculate its period
-            candidateperiod = 1 + (int)periods.size() / candidatecurl;
+            ++ctx.candidatecurl;                                        // if not, we increase the curl to try and calculate its period
+            ctx.candidateperiod = 1 + (int)ctx.periods.size() / ctx.candidatecurl;
         }
     }
 }
 
-int real_generator_length() {       // returns the index of the last unique value of the generator
+int real_generator_length(context& ctx) {       // returns the index of the last unique value of the generator
     int i = 0;
-    while ((seq[i] == (-length + i)) && (++i != length)) {}
+    while ((ctx.seq[i] == (-length + i)) && (++i != length)) {}
     return (length - i);
 }
 
-void append() {
-    for (int i = 0; i < pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
-        for (int x : seq_map[pairs[i + 1] + length])
-            seq_map[pairs[i] + length].push_back(x);        // so we move all changed values to their new location
-        seq_map[pairs[i + 1] + length].clear();             // and delete their previous entries
+void append(context& ctx) {
+    for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
+        for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
+            ctx.seq_map[ctx.pairs[i] + length].push_back(x);        // so we move all changed values to their new location
+        ctx.seq_map[ctx.pairs[i + 1] + length].clear();             // and delete their previous entries
     }
-    seq.resize(length);                                     // discard the tail so we can swap it into the memory
-    generators_memory[(int16_t)periods.size()].swap(seq);
-    seq.swap(seq_new);                                      // retrieve the new sequence from test_2
-    seq.push_back((int16_t)candidatecurl);                  // add the candidates because we passed test_1 and test_2
-    periods.push_back((int16_t)candidateperiod);
-    seq_map[candidatecurl + length].push_back(seq.size() - 1);
+    ctx.seq.resize(length);                                     // discard the tail so we can swap it into the memory
+    ctx.generators_memory[(int16_t)ctx.periods.size()].swap(ctx.seq);
+    ctx.seq.swap(ctx.seq_new);                                      // retrieve the new sequence from test_2
+    ctx.seq.push_back((int16_t)ctx.candidatecurl);                  // add the candidates because we passed test_1 and test_2
+    ctx.periods.push_back((int16_t)ctx.candidateperiod);
+    ctx.seq_map[ctx.candidatecurl + length].push_back(ctx.seq.size() - 1);
     int period = 0;
     while (true) {                                          // build the tail for this generator
-        int curl = krul(seq, period, (int)seq.size(), 2);
+        int curl = krul(ctx.seq, period, (int)ctx.seq.size(), 2);
         if (curl == 1)
             break;
-        seq_map[curl + length].push_back(seq.size());
-        seq.push_back((int16_t)curl);
-        periods.push_back((int16_t)period);
+        ctx.seq_map[curl + length].push_back(ctx.seq.size());
+        ctx.seq.push_back((int16_t)curl);
+        ctx.periods.push_back((int16_t)period);
 
     }
 
-    int tail = (int)periods.size();                         // find tail size (seq.size() - length)
-    candidatecurl = 2;                                      // prepare candidates for next backtracking_step
-    candidateperiod = 1 + tail / 2;
-    change_indices.insert((int16_t)tail);                   // to improve generator, we would have to take note of the index where the 1 occured
-    int len = real_generator_length();                      // retrieve actual generator length
-    if (max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
-        max_tails[len] = (int16_t)tail;
-        best_generators[len] = val_vector(seq.begin() + length - len, seq.begin() + length);
+    int tail = (int)ctx.periods.size();                         // find tail size (seq.size() - length)
+    ctx.candidatecurl = 2;                                      // prepare candidates for next backtracking_step
+    ctx.candidateperiod = 1 + tail / 2;
+    ctx.change_indices.insert((int16_t)tail);                   // to improve generator, we would have to take note of the index where the 1 occured
+    int len = real_generator_length(ctx);                      // retrieve actual generator length
+    if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
+        ctx.max_tails[len] = (int16_t)tail;
+        ctx.best_generators[len] = val_vector(ctx.seq.begin() + length - len, ctx.seq.begin() + length);
     }
 }
 
 // this function checks whether the current sequence allows for the candidates to be added
-bool test_1() {
-    int l = (int)seq.size() - 1;                            // last element of pattern to check
-    int lcp = l - candidateperiod;                          // last element of potential pattern
-    int limit = (candidatecurl - 1) * candidateperiod;      // limit to which to check for repetition
+bool test_1(context& ctx) {
+    int l = (int)ctx.seq.size() - 1;                            // last element of pattern to check
+    int lcp = l - ctx.candidateperiod;                          // last element of potential pattern
+    int limit = (ctx.candidatecurl - 1) * ctx.candidateperiod;      // limit to which to check for repetition
     for (int i = 0; i < limit; ++i, --l, --lcp) {
-        int16_t a = seq[l];
-        int16_t b = seq[lcp];
+        int16_t a = ctx.seq[l];
+        int16_t b = ctx.seq[lcp];
         if (a != b and a > 0 and b > 0)                     // check whether the repetition may be possible
             return false;
     }
-    seq_new = seq;                                          // create dummy sequence
-    pairs.clear();
-    l = (int)seq.size() - 1;                                // reset pattern values
-    lcp = l - candidateperiod;
+    ctx.seq_new = ctx.seq;                                          // create dummy sequence
+    ctx.pairs.clear();
+    l = (int)ctx.seq.size() - 1;                                // reset pattern values
+    lcp = l - ctx.candidateperiod;
 
     for (int i = 0; i < limit; ++i, --l, --lcp) {
-        int16_t a = seq_new[l];
-        int16_t b = seq_new[lcp];
+        int16_t a = ctx.seq_new[l];
+        int16_t b = ctx.seq_new[lcp];
         if (a != b) {                                       // because we are changing values below, we may encounter a possible break, again
             if (a > 0 and b > 0)
                 return false;
             if (a > b)
                 std::swap(a, b);                            // a is now always < b and < 0
-            pairs.push_back(b);                             // add (b, a) combo to the pairs
-            pairs.push_back(a);
+            ctx.pairs.push_back(b);                             // add (b, a) combo to the pairs
+            ctx.pairs.push_back(a);
 
-            temp.clear();
-            temp.push_back(a);                                  // temporary vector that will hold all map values that need to be changed
-            for (int index = 0; index < temp.size(); index++)   // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
-                for (int i = 0; i < pairs.size(); i += 2)       // if we change a to b, and later change b, we also need to change a in that case
-                    if (pairs[i] == temp[index])                // so we need to check if we already crossed the value b
-                        temp.push_back(pairs[i + 1]);
-            for (int x : temp)                              // apply changes to sequence
-                for (int ind : seq_map[x + length])
-                    seq_new[ind] = b;
+            ctx.temp.clear();
+            ctx.temp.push_back(a);                                  // temporary vector that will hold all map values that need to be changed
+            for (int index = 0; index < ctx.temp.size(); index++)   // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
+                for (int i = 0; i < ctx.pairs.size(); i += 2)       // if we change a to b, and later change b, we also need to change a in that case
+                    if (ctx.pairs[i] == ctx.temp[index])                // so we need to check if we already crossed the value b
+                        ctx.temp.push_back(ctx.pairs[i + 1]);
+            for (int x : ctx.temp)                              // apply changes to sequence
+                for (int ind : ctx.seq_map[x + length])
+                    ctx.seq_new[ind] = b;
         }
     }
     return true;
 }
 
 // this function checks whether the proposed change invalidates the generator (regarding curl or period)
-bool test_2() {
-    int l = (int)seq_new.size();
+bool test_2(context& ctx) {
+    int l = (int)ctx.seq_new.size();
     int period = 0;
 
     for (int i = 0; i < l - length; ++i) {                                  // check within tail for a valid curl or period
-        int curl = krul(seq_new, period, length + i, seq_new[length + i]);  // calculate curl and period up to this part of the sequence
-        if (curl != seq_new[length + i] or period != periods[i])            // if the curl or its period are not related, the tail will not improve
+        int curl = krul(ctx.seq_new, period, length + i, ctx.seq_new[length + i]);  // calculate curl and period up to this part of the sequence
+        if (curl != ctx.seq_new[length + i] or period != ctx.periods[i])            // if the curl or its period are not related, the tail will not improve
             return false;
     }
-    int curl = krul(seq_new, period, l, candidatecurl);
-    return (curl == candidatecurl and period == candidateperiod);
+    int curl = krul(ctx.seq_new, period, l, ctx.candidatecurl);
+    return (curl == ctx.candidatecurl and period == ctx.candidateperiod);
 }
 
-void backtracking_step() {
-    if (test_1() && test_2())   // depending on whether the sequence will improve the tail length...
-        append();               // we make the tail longer if it passed the checks
+void backtracking_step(context& ctx) {
+    if (test_1(ctx) && test_2(ctx))   // depending on whether the sequence will improve the tail length...
+        append(ctx);               // we make the tail longer if it passed the checks
     else
-        up();                   // or we upgrade the generator if they failed
+        up(ctx);                   // or we upgrade the generator if they failed
 }
 
 void backtracking() {
+    context ctx;
     for (int i = 0; i <= length; ++i) {                  // initiate thread-local record vectors
-        max_tails.push_back(0);
-        best_generators.push_back({});
+        ctx.max_tails.push_back(0);
+        ctx.best_generators.push_back({});
     }
     auto t1 = std::chrono::high_resolution_clock::now();
     while (true) {
@@ -259,8 +262,8 @@ void backtracking() {
             std::lock_guard<std::mutex> l(m_kp);        // lock g_k1 and g_p1
             if (g_k1 > length)
                 break;
-            candidatecurl = g_k1;                       // value for first curl of the tail
-            candidateperiod = g_p1;                     // value for period of this curl
+            ctx.candidatecurl = g_k1;                       // value for first curl of the tail
+            ctx.candidateperiod = g_p1;                     // value for period of this curl
             int limit = length / g_k1;
             if (++g_p1 > limit) {                       // gone out of range?
                 g_p1 = 1;                               // reset period
@@ -268,23 +271,25 @@ void backtracking() {
             }
         }
         for (int i = 0; i < length; ++i)                // initiate sequence
-            seq[i] = (int16_t)(-length + i);
+            ctx.seq[i] = (int16_t)(-length + i);
 
-        seq_map.clear();
-        seq_map.resize(2 * length + 2);
+        //seq_map.clear();
+        //seq_map.resize(2 * length + 2);
+        for (auto& v : ctx.seq_map)
+            v.clear();
         for (int j = 0; j < length; ++j)
-            seq_map[seq[j] + length].push_back(j);
+            ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-        backtracking_step();                            // perform backtracking for this combination (g_k1, g_p1)
-        while (periods.size())
-            backtracking_step();
+        backtracking_step(ctx);                            // perform backtracking for this combination (g_k1, g_p1)
+        while (ctx.periods.size())
+            backtracking_step(ctx);
     }
     {
         std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
         for (int i = 0; i <= length; ++i) {
-            if (max_tails[i] > g_max_tails[i]) {
-                g_max_tails[i] = max_tails[i];
-                g_best_generators[i] = best_generators[i];
+            if (ctx.max_tails[i] > g_max_tails[i]) {
+                g_max_tails[i] = ctx.max_tails[i];
+                g_best_generators[i] = ctx.best_generators[i];
             }
         }
     }
