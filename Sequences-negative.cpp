@@ -28,7 +28,7 @@ std::ofstream file;
 
 typedef std::vector<int16_t> val_vector;
 
-const int length = 140;
+const int length = 190;
 const int thread_count = std::thread::hardware_concurrency();
 
 struct context {
@@ -97,6 +97,7 @@ int krul(const val_vector& s, int& period, int l, int minimum) {
     return curl;
 }
 
+__forceinline
 void up(context& ctx) {
     ++ctx.candidateperiod;                                              // try period one larger now
     while (true) {
@@ -154,6 +155,7 @@ int real_generator_length(context& ctx) {       // returns the index of the last
     return (length - i);
 }
 
+__forceinline
 void append(context& ctx) {
     for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
         for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
@@ -189,6 +191,7 @@ void append(context& ctx) {
 }
 
 // this function checks whether the current sequence allows for the candidates to be added
+__forceinline
 bool test_1(context& ctx) {
     int l = (int)ctx.seq.size() - 1;                            // last element of pattern to check
     int lcp = l - ctx.candidateperiod;                          // last element of potential pattern
@@ -230,6 +233,7 @@ bool test_1(context& ctx) {
 }
 
 // this function checks whether the proposed change invalidates the generator (regarding curl or period)
+__forceinline
 bool test_2(context& ctx) {
     int l = (int)ctx.seq_new.size();
     int period = 0;
