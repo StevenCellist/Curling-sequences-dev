@@ -164,14 +164,16 @@ void append(context& ctx) {
     ctx.seq.swap(ctx.seq_new);                                      // retrieve the new sequence from test_2
     ctx.seq.push_back((int16_t)ctx.candidatecurl);                  // add the candidates because we passed test_1 and test_2
     ctx.periods.push_back((int16_t)ctx.candidateperiod);
-    ctx.seq_map[ctx.candidatecurl + length].push_back(ctx.seq.size() - 1);
+    int seq_size = (int)ctx.seq.size();
+    ctx.seq_map[ctx.candidatecurl + length].push_back(seq_size - 1);
     int period = 0;
     while (true) {                                          // build the tail for this generator
-        int curl = krul(ctx.seq, period, (int)ctx.seq.size(), 2);
+        int curl = krul(ctx.seq, period, seq_size, 2);
         if (curl == 1)
             break;
-        ctx.seq_map[curl + length].push_back(ctx.seq.size());
+        ctx.seq_map[curl + length].push_back(seq_size);
         ctx.seq.push_back((int16_t)curl);
+        ++seq_size;
         ctx.periods.push_back((int16_t)period);
 
     }
@@ -193,21 +195,21 @@ bool test_1(context& ctx) {
     int l = (int)ctx.seq.size() - 1;                            // last element of pattern to check
     int lcp = l - ctx.candidateperiod;                          // last element of potential pattern
     int limit = (ctx.candidatecurl - 1) * ctx.candidateperiod;      // limit to which to check for repetition
-    for (int i = 0; i < limit; ++i, --l, --lcp) {
-        int16_t a = ctx.seq[l];
-        int16_t b = ctx.seq[lcp];
-        if (a != b and (a | b) > 0)                     // check whether the repetition may be possible
+    int16_t* p1 = &ctx.seq[l];
+    int16_t* p2 = &ctx.seq[lcp];
+    for (int i = 0; i < limit; ++i, --p1, --p2) {
+        if (*p1 != *p2 and (*p1 | *p2) > 0)                     // check whether the repetition may be possible
             return false;
     }
     ctx.seq_new = ctx.seq;                                          // create dummy sequence
     ctx.pairs.clear();
     int pairs_size = 0;
-    l = (int)ctx.seq.size() - 1;                                // reset pattern values
-    lcp = l - ctx.candidateperiod;
+    p1 = &ctx.seq_new[l];
+    p2 = &ctx.seq_new[lcp];
 
-    for (int i = 0; i < limit; ++i, --l, --lcp) {
-        int16_t a = ctx.seq_new[l];
-        int16_t b = ctx.seq_new[lcp];
+    for (int i = 0; i < limit; ++i, --p1, --p2) {
+        int16_t a = *p1;
+        int16_t b = *p2;
         if (a != b) {                                       // because we are changing values below, we may encounter a possible break, again
             if ((a | b) > 0)
                 return false;
