@@ -222,10 +222,17 @@ bool test_1(context& ctx) {
 
             ctx.temp.clear();
             ctx.temp.push_back(a);                                  // temporary vector that will hold all map values that need to be changed
-            for (int index = 0; index < ctx.temp.size(); index++)   // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
-                for (int i = 0; i < pairs_size; i += 2)       // if we change a to b, and later change b, we also need to change a in that case
-                    if (ctx.pairs[i] == ctx.temp[index])                // so we need to check if we already crossed the value b
-                        ctx.temp.push_back(ctx.pairs[i + 1]);
+            int temp_size = 1;
+            for (int index = 0; index < temp_size; ++index) {  // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
+                int16_t* pi = &ctx.pairs[0];
+                int16_t tmp = ctx.temp[index];
+                for (int i = 0; i < pairs_size; i += 2, ++pi)       // if we change a to b, and later change b, we also need to change a in that case
+                    if (*pi++ == tmp) {               // so we need to check if we already crossed the value b
+                        ctx.temp.push_back(*pi);
+                        break;
+                        //temp_size++;
+                    }
+            }
             for (int x : ctx.temp)                              // apply changes to sequence
                 for (int ind : ctx.seq_map[x + length])
                     ctx.seq_new[ind] = b;
