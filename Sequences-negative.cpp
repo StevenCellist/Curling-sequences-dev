@@ -164,14 +164,14 @@ void append(context& ctx) {
     ctx.seq.swap(ctx.seq_new);                                      // retrieve the new sequence from test_2
     ctx.seq.push_back((int16_t)ctx.candidatecurl);                  // add the candidates because we passed test_1 and test_2
     ctx.periods.push_back((int16_t)ctx.candidateperiod);
-    int seq_size = ctx.seq.size();
+    int seq_size = (int)ctx.seq.size();
     ctx.seq_map[ctx.candidatecurl + length].push_back(seq_size - 1);
     int period = 0;
     while (true) {                                          // build the tail for this generator
         int curl = krul(ctx.seq, period, seq_size, 2);
         if (curl == 1)
             break;
-        ctx.seq_map[curl + length].push_back(ctx.seq.size());
+        ctx.seq_map[curl + length].push_back(seq_size);
         ctx.seq.push_back((int16_t)curl);
         ++seq_size;
         ctx.periods.push_back((int16_t)period);
