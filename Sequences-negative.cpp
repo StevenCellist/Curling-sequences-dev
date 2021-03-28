@@ -26,24 +26,23 @@ std::ofstream file;
 #define FILE_CLOSE file.close();
 #endif
 
-typedef std::vector<int16_t> val_vector;
+typedef std::vector<int16_t> v16_t;
 
-const int length = 190;
+const int length = 140;
 const int thread_count = std::thread::hardware_concurrency();
 
 struct context {
     int candidatecurl, candidateperiod;
-    val_vector seq = val_vector(length), seq_new, periods, max_tails;
-    std::vector<val_vector> best_generators;
-    std::map<int16_t, val_vector> generators_memory;
+    v16_t seq = v16_t(length), seq_new, periods, max_tails;
+    std::vector<v16_t> best_generators;
+    std::map<int16_t, v16_t> generators_memory;
     std::set<int16_t> change_indices = { 0 };
     std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
-    val_vector pairs;
-    std::vector<int> temp;
+    v16_t pairs, temp;
 };
 
-val_vector g_max_tails(length + 1, 0);
-std::vector<val_vector> g_best_generators(length + 1);
+v16_t g_max_tails(length + 1, 0);
+std::vector<v16_t> g_best_generators(length + 1);
 std::mutex m_tails, m_kp;
 
 int g_k1 = 2, g_p1 = 1;
@@ -63,13 +62,12 @@ bool diff(const int16_t* p1, const int16_t* p2, int count) {
             if (*p1_64++ != *p2_64++)
                 return true;
         }
+        p1 = (int16_t*)p1_64;
+        p2 = (int16_t*)p2_64;
     }
 
     int count16 = count % 4;    // left-overs
     if (count16) {
-        int offset = count - count16;
-        p1 += offset;
-        p2 += offset;
         while (count16--) {
             if (*p1++ != *p2++)
                 return true;
@@ -78,7 +76,7 @@ bool diff(const int16_t* p1, const int16_t* p2, int count) {
     return false;
 }
 
-int krul(const val_vector& s, int& period, int l, int minimum) {
+int krul(const v16_t& s, int& period, int l, int minimum) {
     int curl = minimum - 1;                                 // base value for curl
     int limit = l / minimum;                                // limit up to which to check for repetition
     const int16_t* p1 = &s[l - 1];                      // start of the last pattern
@@ -117,7 +115,7 @@ void up(context& ctx) {
                 ctx.candidatecurl = ctx.seq.back();                         // let's try this same curl but now with one higher period
                 ctx.candidateperiod = ctx.periods.back() + 1;
 
-                val_vector& temp = ctx.generators_memory[k];            // retrieve generator from memory
+                v16_t& temp = ctx.generators_memory[k];            // retrieve generator from memory
                 for (int i = 0; i < length; i++) {
                     if (ctx.seq[i] != temp[i]) {                        // check where the differences are, apply them, and change map accordingly
                         for (int& x : ctx.seq_map[ctx.seq[i] + length])
@@ -186,7 +184,7 @@ void append(context& ctx) {
     int len = real_generator_length(ctx);                      // retrieve actual generator length
     if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
         ctx.max_tails[len] = (int16_t)tail;
-        ctx.best_generators[len] = val_vector(ctx.seq.begin() + length - len, ctx.seq.begin() + length);
+        ctx.best_generators[len] = v16_t(ctx.seq.begin() + length - len, ctx.seq.begin() + length);
     }
 }
 
