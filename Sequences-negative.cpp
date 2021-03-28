@@ -33,12 +33,11 @@ const int thread_count = std::thread::hardware_concurrency();
 
 struct context {
     int candidatecurl, candidateperiod;
-    v16_t seq = v16_t(length), seq_new, periods, max_tails;
+    v16_t seq = v16_t(length), seq_new, periods, max_tails, pairs, temp;
     std::vector<v16_t> best_generators;
     std::map<int16_t, v16_t> generators_memory;
     std::set<int16_t> change_indices = { 0 };
     std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
-    v16_t pairs, temp;
 };
 
 v16_t g_max_tails(length + 1, 0);
@@ -197,11 +196,12 @@ bool test_1(context& ctx) {
     for (int i = 0; i < limit; ++i, --l, --lcp) {
         int16_t a = ctx.seq[l];
         int16_t b = ctx.seq[lcp];
-        if (a != b and a > 0 and b > 0)                     // check whether the repetition may be possible
+        if (a != b and (a | b) > 0)                     // check whether the repetition may be possible
             return false;
     }
     ctx.seq_new = ctx.seq;                                          // create dummy sequence
     ctx.pairs.clear();
+    int pairs_size = 0;
     l = (int)ctx.seq.size() - 1;                                // reset pattern values
     lcp = l - ctx.candidateperiod;
 
@@ -209,17 +209,19 @@ bool test_1(context& ctx) {
         int16_t a = ctx.seq_new[l];
         int16_t b = ctx.seq_new[lcp];
         if (a != b) {                                       // because we are changing values below, we may encounter a possible break, again
-            if (a > 0 and b > 0)
+            if ((a | b) > 0)
                 return false;
             if (a > b)
                 std::swap(a, b);                            // a is now always < b and < 0
             ctx.pairs.push_back(b);                             // add (b, a) combo to the pairs
             ctx.pairs.push_back(a);
+            ++pairs_size;
+            ++pairs_size;
 
             ctx.temp.clear();
             ctx.temp.push_back(a);                                  // temporary vector that will hold all map values that need to be changed
             for (int index = 0; index < ctx.temp.size(); index++)   // because we don't (want to) change the map here (not sure we pass test_1 and test_2)
-                for (int i = 0; i < ctx.pairs.size(); i += 2)       // if we change a to b, and later change b, we also need to change a in that case
+                for (int i = 0; i < pairs_size; i += 2)       // if we change a to b, and later change b, we also need to change a in that case
                     if (ctx.pairs[i] == ctx.temp[index])                // so we need to check if we already crossed the value b
                         ctx.temp.push_back(ctx.pairs[i + 1]);
             for (int x : ctx.temp)                              // apply changes to sequence
