@@ -6,7 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
-#include <set>
+#include <unordered_set>
 #include <map>
 #include <unordered_map>
 #include <array>
@@ -18,6 +18,7 @@
 #define OUTPUT std::cout
 #define FILE_CLOSE  
 #define INLINING __declspec(noinline)
+//#define INLINING __forceinline
 #else // gcc (Linux)
 #include <fstream>
 #include <cstring>
@@ -31,7 +32,7 @@ std::ofstream file;
 using namespace std::chrono;
 typedef std::vector<int16_t> v16_t;
 
-const int length = 140;
+const int length = 150;
 const int thread_count = std::thread::hardware_concurrency();
 
 struct context {
@@ -39,7 +40,7 @@ struct context {
     v16_t seq = v16_t(length), seq_new, periods, max_tails, pairs, temp;
     std::vector<v16_t> best_generators;
     std::map<int16_t, v16_t> generators_memory;
-    std::set<int16_t> change_indices = { 0 };
+    std::unordered_set<int16_t> change_indices = { 0 };
     std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
 };
 
@@ -97,6 +98,14 @@ int krul(const v16_t& s, int& period, int l, int minimum) {
     return curl;
 }
 
+void erase(std::vector<int>& v, int x) {
+    int i = 0;
+    while (v[i] != x)
+        ++i;
+	v[i] = v.back();// use last value
+    v.pop_back();        // remove (now duplicated) last value
+}
+
 INLINING
 void up(context& ctx) {
     ++ctx.candidateperiod;                                                  // try period one larger now
@@ -120,12 +129,7 @@ void up(context& ctx) {
                 v16_t& temp = ctx.generators_memory[k];                     // retrieve generator from memory
                 for (int i = 0; i < length; i++) {
                     if (ctx.seq[i] != temp[i]) {                            // check where the differences are, apply them, and change map accordingly
-                        for (int& x : ctx.seq_map[ctx.seq[i] + length])
-                            if (x == i) {
-                                x = ctx.seq_map[ctx.seq[i] + length].back();// use last value
-                                break;
-                            }
-                        ctx.seq_map[ctx.seq[i] + length].pop_back();        // remove (now duplicated) last value
+                        erase(ctx.seq_map[ctx.seq[i] + length], i);
                         ctx.seq_map[temp[i] + length].push_back(i);
                         ctx.seq[i] = temp[i];
                     }
@@ -135,6 +139,7 @@ void up(context& ctx) {
 
             auto ind = std::find(ctx.seq_map[ctx.seq.back() + length].begin(), ctx.seq_map[ctx.seq.back() + length].end(), ctx.seq.size() - 1);
             ctx.seq_map[ctx.seq.back() + length].erase(ind);                // delete the last curl, period and index from their vectors
+            //erase(ctx.seq_map[ctx.seq.back() + length], ctx.seq.size() - 1);                // delete the last curl, period and index from their vectors
             ctx.seq.pop_back();
             ctx.periods.pop_back();
 
@@ -297,6 +302,7 @@ void backtracking() {
         while (ctx.periods.size())
             backtracking_step(ctx);
     }
+    auto t2 = high_resolution_clock::now();
     {
         std::lock_guard<std::mutex> l(m_tails);         // update global arrays under a safe lock
         for (int i = 0; i <= length; ++i) {
@@ -305,9 +311,8 @@ void backtracking() {
                 g_best_generators[i] = ctx.best_generators[i];
             }
         }
+        OUTPUT << "Finished: " << length << ", " << "duration: " << duration_cast<milliseconds>(t2 - t1).count() << " msec" << std::endl;
     }
-    auto t2 = high_resolution_clock::now();
-    OUTPUT << "Finished: " << length << ", " << "duration: " << duration_cast<milliseconds>(t2 - t1).count() << " msec" << std::endl;
 }
 
 void multi_threader() {
