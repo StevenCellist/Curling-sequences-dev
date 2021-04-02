@@ -22,6 +22,7 @@
 #else // gcc (Linux)
 #include <fstream>
 #include <cstring>
+#include <algorithm>
 std::ofstream file;
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
@@ -211,6 +212,7 @@ bool test_1(context& ctx) {
     }
     ctx.seq_new = ctx.seq;                                      // create dummy sequence
     ctx.pairs.clear();
+    ctx.pairs.reserve(limit);
     int pairs_size = 0;
     p1 = &ctx.seq_new[l];
     p2 = &ctx.seq_new[lcp];
@@ -227,14 +229,16 @@ bool test_1(context& ctx) {
             ctx.pairs.push_back(a);
             ++pairs_size;
             ++pairs_size;
+            int16_t* p_begin = &ctx.pairs[0];
+            int16_t* p_end = p_begin + pairs_size;
 
             ctx.temp.clear();
             ctx.temp.push_back(a);                              // temporary vector that will hold all map values that need to be changed
             int temp_size = 1;
             for (int index = 0; index < temp_size; ++index) {   // because we don't (want to) change the map here (not sure we pass tests 1 and 2)
-                int16_t* pi = &ctx.pairs[0];
+                int16_t* pi = p_begin;
                 int16_t tmp = ctx.temp[index];
-                for (int i = 0; i < pairs_size; i += 2, ++pi)   // if we change a to b, and later change b, we also need to change a in that case
+                for (; pi < p_end; ++pi)   // if we change a to b, and later change b, we also need to change a in that case
                     if (*pi++ == tmp) {                         // so we need to check if we already crossed the value b
                         ctx.temp.push_back(*pi);
                         temp_size++;
