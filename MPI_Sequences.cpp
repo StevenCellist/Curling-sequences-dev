@@ -284,56 +284,11 @@ int main(int argc, char *argv[])
 		
 		int c_cand, p_cand, c_cand2, p_cand2, k2p2;
 		
-		// initiate all processes
-		
-		for (int i = 1; i < np; i++) {
-			
-			if (g_k1 > length)
-                break;
-            c_cand = g_k1;                          // value for first curl of the tail
-            p_cand = g_p1;                          // value for period of this curl
-            if (c_cand * p_cand <= g_limit) {
-                k2p2 = true;
-                if (g_k2 > length + 1) {
-                    g_k2 = 2;
-                    g_p2 = 1;
-                    int limit = length / g_k1;
-                    if (++g_p1 > limit) {                       // gone out of range?
-                        g_p1 = 1;                               // reset period
-                        ++g_k1;                                 // try new curl
-                    }
-                    continue;
-                }
-                c_cand2 = g_k2;
-                p_cand2 = g_p2;
-                int limit2 = (length + 1) / g_k2;
-                if (++g_p2 > limit2) {
-                    g_p2 = 1;
-                    ++g_k2;
-                }
-            }
-            else {
-                k2p2 = false;
-                int limit = length / g_k1;
-                if (++g_p1 > limit) {                       // gone out of range?
-                    g_p1 = 1;                               // reset period
-                    ++g_k1;                                 // try new curl
-                }
-            }
-			
-			int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
-			MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);
-			
-		}
-		
-		// handle running processes
+		// handle processes
 		
 		while(true) {
-			int id;
-			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			
 			if (g_k1 > length) {
-				std::cout << "Processed all sequences! Attempting to break out... " << std::endl;
+				std::cout << "Processed all sequences! ";
                 break;
 			}
             c_cand = g_k1;                          // value for first curl of the tail
@@ -367,15 +322,17 @@ int main(int argc, char *argv[])
             }
 			
 			int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
-			
+			int id;
+			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);
 		}
 		
-		std::cout << "Break succeeded! Attempting to quit processes..." << std::endl;
+		std::cout << "Attempting to quit processes..." << std::endl;
 		
+		int id;
 		int values[5] = { 0, 0, 0, 0, 0 };
-		
 		for (int i = 1; i < np; i++) {
+			MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);
 		}
 		
@@ -385,7 +342,7 @@ int main(int argc, char *argv[])
 			int max_tails[length + 1];
 			MPI_Status status;
 			MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 1, MPI_COMM_WORLD, &status);
-			std::cout << "Received some information: " << status.MPI_SOURCE << " " << status.MPI_TAG << " " << status.MPI_ERROR << std::endl;
+			std::cout << "Received information from: " << status.MPI_SOURCE << " " << status.MPI_TAG << " " << status.MPI_ERROR << std::endl;
 			for (int j = 0; j <= length; ++j) {
 				if (max_tails[j] > g_max_tails[j]) {
 					g_max_tails[j] = max_tails[j];
@@ -429,6 +386,8 @@ int main(int argc, char *argv[])
 		
 		auto t1 = high_resolution_clock::now();
 		
+		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready to start
+		
 		while (true) {
 			int values[5];
 			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -469,7 +428,7 @@ int main(int argc, char *argv[])
 				ctx.periods.pop_back();
 			}
 			
-			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for the next combination
 		}
 		auto t2 = high_resolution_clock::now();
 		
