@@ -5,7 +5,6 @@
 
 #include <iostream>
 #include <vector>
-#include <chrono>
 #include <unordered_set>
 #include <map>
 #include <unordered_map>
@@ -20,7 +19,7 @@
 #define FILE_CLOSE file.close();
 #define INLINING inline __attribute__((always_inline))
 
-using namespace std::chrono;
+using namespace std;
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
@@ -322,12 +321,12 @@ int main(int argc, char *argv[])
 		// clean up all processes one by one
 		int id;
 		int values[5] = { 0, 0, 0, 0, 0 };
-		int elapsed;
+		double elapsed;
 		int max_tails[length + 1];
 		for (int id = 1; id < np; id++) {
 			MPI_Recv(&id, 1, MPI_INT, id, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);					// get notified that this rank finished
 			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);								// send it terminating values
-			MPI_Recv(&elapsed, 1, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);				// receive its elapsed time for logging
+			MPI_Recv(&elapsed, 1, MPI_DOUBLE, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);			// receive its elapsed time for logging
 			MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // receive its maximum tails
 			OUTPUT << "Rank: " << id << ", duration: " << elapsed << std::endl;						// log data
 			for (int j = 0; j <= length; ++j)			// update global tails
@@ -360,7 +359,7 @@ int main(int argc, char *argv[])
 			ctx.best_generators.push_back({});
 		}
 		
-		auto t1 = high_resolution_clock::now();
+		double t1 = MPI_Wtime();
 		
 		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 		// advertise that this rank is ready to start
 		
@@ -404,9 +403,9 @@ int main(int argc, char *argv[])
 			
 			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for the next combination
 		}
-		auto t2 = high_resolution_clock::now();
-		int elapsed = duration_cast<milliseconds>(t2 - t1).count();
-		MPI_Send(&elapsed, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);	// send elapsed time for logging
+		double t2 = MPI_Wtime();
+		double elapsed = t2 - t1;
+		MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);				// send elapsed time for logging
 		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);	// send maximum tails in this rank
 	}   
 	MPI_Finalize();
