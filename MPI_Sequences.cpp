@@ -25,13 +25,13 @@ std::ofstream file;
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
 #define FILE_CLOSE file.close();
-#define INLINING __attribute__((always_inline))
+#define INLINING inline __attribute__((always_inline))
 #endif
 
 using namespace std::chrono;
 typedef std::vector<int16_t> v16_t;
 
-const int length = 60;
+const int length = 100;
 const int g_limit = 16;
 
 struct context {
@@ -276,16 +276,17 @@ int main(int argc, char *argv[])
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
+	FILE_OPEN;
+	
 	if (rank == 0) {
 		
-		FILE_OPEN;
+		OUTPUT << "Length: " << length << std::endl;
 		
 		std::cout << "Hello from the master" << std::endl;
 		
 		int c_cand, p_cand, c_cand2, p_cand2, k2p2;
 		
 		// handle processes
-		
 		while(true) {
 			if (g_k1 > length) {
 				std::cout << "Processed all sequences! ";
@@ -326,58 +327,41 @@ int main(int argc, char *argv[])
 			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);
 		}
-		
-		std::cout << "Attempting to quit processes..." << std::endl;
-		
+
+		// clean up all processes one by one
 		int id;
 		int values[5] = { 0, 0, 0, 0, 0 };
-		for (int i = 1; i < np; i++) {
-			MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);
-		}
-		
-		std::cout << "Waiting for responses..." << std::endl;
-		
-		for (int i = 1; i < np; i++) {
-			int max_tails[length + 1];
-			MPI_Status status;
-			MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 1, MPI_COMM_WORLD, &status);
-			std::cout << "Received information from: " << status.MPI_SOURCE << " " << status.MPI_TAG << " " << status.MPI_ERROR << std::endl;
-			for (int j = 0; j <= length; ++j) {
-				if (max_tails[j] > g_max_tails[j]) {
+		int elapsed;
+		int max_tails[length + 1];
+		for (int id = 1; id < np; id++) {
+			MPI_Recv(&id, 1, MPI_INT, id, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);
+			MPI_Recv(&elapsed, 1, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE); 
+			OUTPUT << "Rank: " << id << ", duration: " << elapsed << std::endl;
+			for (int j = 0; j <= length; ++j)
+				if (max_tails[j] > g_max_tails[j])
 					g_max_tails[j] = max_tails[j];
-				}
-			}
-			// std::cout << "[";
-			// for (int x : g_max_tails)
-				// std::cout << x << " ";
-			// std::cout << "]" << std::endl;
 		}
 		
-		std::cout << "Got all responses" << std::endl;
-		
+		// process the tails
 		int record = 0;
 		for (int i = 0; i <= length; ++i) {
 			if (g_max_tails[i] > record) {
 				record = g_max_tails[i];
 				if (expected_tails.find(i) == expected_tails.end())
-					std::cout << "NEW:" << std::endl;
+					OUTPUT << "NEW:" << std::endl;
 				else if (expected_tails[i] != record)
-					std::cout << "WRONG:" << std::endl;
-				std::cout << i << ": " << record << std::endl;
+					OUTPUT << "WRONG:" << std::endl;
+				OUTPUT << i << ": " << record << std::endl;
 			}
 		}
-		FILE_CLOSE;
-		
 		std::cout << "Quitting the program..." << std::endl;
-		
-		MPI_Finalize();
 	}
 	
 	else {
 		
-		std::cout << "Hello from process " << rank << std::endl;
-		
+		std::cout << "Hello from rank " << rank << std::endl;
 		context ctx;
 		for (int i = 0; i <= length; ++i) {                  // initiate thread-local record vectors
 			ctx.max_tails[i] = 0;
@@ -398,8 +382,6 @@ int main(int argc, char *argv[])
 			ctx.c_cand2 = values[2];
 			ctx.p_cand2 = values[3];
 			ctx.k2p2    = values[4];
-			
-			//std::cout << "Process " << rank << " received some input:" << values[0] << " " << values[1] << " " << values[2] << " " << values[3] << " " << values[4] << " " << std::endl;
 			
 			for (auto& v : ctx.seq_map)
 				v.clear();
@@ -431,17 +413,10 @@ int main(int argc, char *argv[])
 			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for the next combination
 		}
 		auto t2 = high_resolution_clock::now();
-		
-		// int record = 0;
-		// for (int i = 0; i <= length; ++i) {
-			// if (ctx.max_tails[i] > record) {
-				// record = ctx.max_tails[i];
-				// std::cout << i << ": " << record << std::endl;
-			// }
-		// }
-		
-		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
-		
-		std::cout << "Finished process: " << rank << " , length: " << length << ", " << "duration: " << duration_cast<milliseconds>(t2 - t1).count() << " msec" << std::endl;
+		int elapsed = duration_cast<milliseconds>(t2 - t1).count();
+		MPI_Send(&elapsed, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
+		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
 	}   
+	FILE_CLOSE;
+	MPI_Finalize();
 }
