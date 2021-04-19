@@ -11,25 +11,18 @@
 #include <unordered_map>
 #include <array>
 #include <mpi.h>
-
-#ifdef _MSC_VER
-#define FILE_OPEN   
-#define OUTPUT std::cout
-#define FILE_CLOSE  
-#define INLINING __declspec(noinline)
-#else // gcc (Linux)
 #include <fstream>
 #include <cstring>
 #include <algorithm>
-std::ofstream file;
+
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
 #define FILE_CLOSE file.close();
 #define INLINING inline __attribute__((always_inline))
-#endif
 
 using namespace std::chrono;
 typedef std::vector<int16_t> v16_t;
+std::ofstream file;
 
 const int length = 100;
 const int g_limit = 16;
@@ -276,12 +269,10 @@ int main(int argc, char *argv[])
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
-	FILE_OPEN;
-	
 	if (rank == 0) {
 		
+		FILE_OPEN;
 		OUTPUT << "Length: " << length << std::endl;
-		
 		std::cout << "Hello from the master" << std::endl;
 		
 		int c_cand, p_cand, c_cand2, p_cand2, k2p2;
@@ -324,8 +315,8 @@ int main(int argc, char *argv[])
 			
 			int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
 			int id;
-			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);
+			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);		// get notified of finished rank
+			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);								// send it new values
 		}
 
 		// clean up all processes one by one
@@ -334,12 +325,12 @@ int main(int argc, char *argv[])
 		int elapsed;
 		int max_tails[length + 1];
 		for (int id = 1; id < np; id++) {
-			MPI_Recv(&id, 1, MPI_INT, id, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);
-			MPI_Recv(&elapsed, 1, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE); 
-			OUTPUT << "Rank: " << id << ", duration: " << elapsed << std::endl;
-			for (int j = 0; j <= length; ++j)
+			MPI_Recv(&id, 1, MPI_INT, id, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);					// get notified that this rank finished
+			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);								// send it terminating values
+			MPI_Recv(&elapsed, 1, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);				// receive its elapsed time for logging
+			MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // receive its maximum tails
+			OUTPUT << "Rank: " << id << ", duration: " << elapsed << std::endl;						// log data
+			for (int j = 0; j <= length; ++j)			// update global tails
 				if (max_tails[j] > g_max_tails[j])
 					g_max_tails[j] = max_tails[j];
 		}
@@ -357,27 +348,28 @@ int main(int argc, char *argv[])
 			}
 		}
 		std::cout << "Quitting the program..." << std::endl;
+		FILE_CLOSE;
 	}
 	
 	else {
 		
 		std::cout << "Hello from rank " << rank << std::endl;
 		context ctx;
-		for (int i = 0; i <= length; ++i) {                  // initiate thread-local record vectors
+		for (int i = 0; i <= length; ++i) {                  	// initiate local record vectors
 			ctx.max_tails[i] = 0;
 			ctx.best_generators.push_back({});
 		}
 		
 		auto t1 = high_resolution_clock::now();
 		
-		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready to start
+		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 		// advertise that this rank is ready to start
 		
 		while (true) {
 			int values[5];
-			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			if (values[0] == 0)
+			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);	// get new values
+			if (values[0] == 0)									// terminate if necessary
 				break;
-			ctx.c_cand  = values[0];
+			ctx.c_cand  = values[0];							// store new values
 			ctx.p_cand  = values[1];
 			ctx.c_cand2 = values[2];
 			ctx.p_cand2 = values[3];
@@ -401,7 +393,7 @@ int main(int argc, char *argv[])
 			for (int j = 0; j < length + ctx.k2p2; ++j)
 				ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-			backtracking_step(ctx);                             // perform backtracking for this combination (g_k1, g_p1)
+			backtracking_step(ctx);                             // perform backtracking for this combination (c_cand, p_cand)
 			while (ctx.periods.size() > ctx.k2p2)
 				backtracking_step(ctx);
 
@@ -414,9 +406,8 @@ int main(int argc, char *argv[])
 		}
 		auto t2 = high_resolution_clock::now();
 		int elapsed = duration_cast<milliseconds>(t2 - t1).count();
-		MPI_Send(&elapsed, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
-		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+		MPI_Send(&elapsed, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);	// send elapsed time for logging
+		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);	// send maximum tails in this rank
 	}   
-	FILE_CLOSE;
 	MPI_Finalize();
 }
