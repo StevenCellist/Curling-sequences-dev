@@ -256,31 +256,31 @@ void backtracking_step(context& ctx) {
 
 int main(int argc, char *argv[])
 {
-	MPI_Init (&argc, &argv);
+    MPI_Init (&argc, &argv);
     int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank of this process
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank of this process
 	
-	if (rank == 0) {        // master rank
+    if (rank == 0) {        // master rank
         
         double t1_master = MPI_Wtime();
-		FILE_OPEN;
-		OUTPUT << "Length: " << length << std::endl;
-		std::cout << "Hello from the master" << std::endl;
+	FILE_OPEN;
+	OUTPUT << "Length: " << length << std::endl;
+	std::cout << "Hello from the master" << std::endl;
 		
         int np;
         MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
     
         int k1 = 2, p1 = 1, k2 = 2, p2 = 1;
         int c_cand, p_cand, c_cand2, p_cand2, k2p2;
-		int id;
+	int id;
         
         std::cout << "Distributing sequences";
-		// handle processes
-		while(true) {
-			if (k1 > length) {
-				std::cout << std::endl << "Distributed all sequences! ";
+	// handle processes
+	while(true) {
+	    if (k1 > length) {
+	        std::cout << std::endl << "Distributed all sequences! ";
                 break;
-			}
+	    }
             c_cand = k1;                                    // value for first curl of the tail
             p_cand = p1;                                    // value for period of this curl
             if (c_cand * p_cand <= g_limit) {
@@ -313,37 +313,37 @@ int main(int argc, char *argv[])
                 }
             }
 			
-			int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
-			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
-			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);                                // send it new values
-		}
+	    int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
+	    MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
+	    MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);                                // send it new values
+	}
         
         std::cout << "Gathering data";
-		// clean up all processes one by one
-		int values[5] = { 0, 0, 0, 0, 0 };
-		double elapsed;
-		int max_tails[length + 1] = { 0 };
+	// clean up all processes one by one
+	int values[5] = { 0, 0, 0, 0, 0 };
+	double elapsed;
+	int max_tails[length + 1] = { 0 };
         int g_max_tails[length + 1] = { 0 };
         int16_t best_generators[length + 1][length];
         int16_t g_best_generators[length + 1][length];
-		for (int i = 1; i < np; i++) {
-			MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // get notified that this rank finished
-			MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);                                 // send it terminating values
-			MPI_Recv(&elapsed, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
+	for (int i = 1; i < np; i++) {
+	    MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // get notified that this rank finished
+	    MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);                                 // send it terminating values
+	    MPI_Recv(&elapsed, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
             OUTPUT << "Rank: " << i << ", duration: " << elapsed << std::endl;                      // log data
-			MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
+	    MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
             MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			for (int j = 0; j <= length; ++j)                                                       // update global tails
-				if (max_tails[j] > g_max_tails[j]) {
-					g_max_tails[j] = max_tails[j];
+	    for (int j = 0; j <= length; ++j)                                                       // update global tails
+		if (max_tails[j] > g_max_tails[j]) {
+		    g_max_tails[j] = max_tails[j];
                     memcpy(&g_best_generators[j][0], &best_generators[j][0], sizeof(int16_t) * length);
                 }
                 std::cout << ".";
-		}
-		std::cout << std::endl;
+	}
+	std::cout << std::endl;
         
-		// process the tails
-		int record = 0;
+	// process the tails
+	int record = 0;
         for (int i = 0; i <= length; ++i) {
             if (g_max_tails[i] > record) {
                 record = g_max_tails[i];
@@ -358,66 +358,66 @@ int main(int argc, char *argv[])
                 OUTPUT << "]" << std::endl;
             }
         }
-		std::cout << "Finished!" << std::endl;
-		FILE_CLOSE;
+	std::cout << "Finished!" << std::endl;
+	FILE_CLOSE;
         double t2_master = MPI_Wtime();
-		elapsed = t2_master - t1_master;
+	elapsed = t2_master - t1_master;
         std::cout << "Took " << elapsed << " seconds." << std::endl;
         std::cout << "Quitting the program..." << std::endl;
 	}
 	
 	else {                  // worker ranks
 		
-		context ctx;
-		for (int i = 0; i <= length; ++i)                  	    // initiate local record vectors
-			ctx.max_tails[i] = 0;
+	    context ctx;
+	    for (int i = 0; i <= length; ++i)                  	    // initiate local record vectors
+		ctx.max_tails[i] = 0;
 		
-		double t1_worker = MPI_Wtime();
+	    double t1_worker = MPI_Wtime();
 		
-		int values[5];
-		while (true) {
-			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for a new combination
-			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
-			if (values[0] == 0)                                 // terminate if necessary
-				break;
-			ctx.c_cand  = values[0];                            // store new values
-			ctx.p_cand  = values[1];
-			ctx.c_cand2 = values[2];
-			ctx.p_cand2 = values[3];
-			ctx.k2p2    = values[4];
+	    int values[5];
+	    while (true) {
+		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);  // advertise that this rank is ready for a new combination
+		MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
+		if (values[0] == 0)                                 // terminate if necessary
+		    break;
+		ctx.c_cand  = values[0];                            // store new values
+		ctx.p_cand  = values[1];
+		ctx.c_cand2 = values[2];
+		ctx.p_cand2 = values[3];
+		ctx.k2p2    = values[4];
 			
-			for (auto& v : ctx.seq_map)
-				v.clear();
+		for (auto& v : ctx.seq_map)
+		    v.clear();
 
-			for (int i = 0; i < length; ++i)                    // initiate sequence
-				ctx.seq[i] = (int16_t)(-length + i);
+		for (int i = 0; i < length; ++i)                    // initiate sequence
+		    ctx.seq[i] = (int16_t)(-length + i);
 
-			if (ctx.k2p2) {
-				for (int i = 2; i <= ctx.c_cand; i++)
-					memcpy(&ctx.seq[length - i * ctx.p_cand], &ctx.seq[length - ctx.p_cand], ctx.p_cand * sizeof(int16_t));
-				ctx.seq.push_back(ctx.c_cand);
-				ctx.periods.push_back(ctx.p_cand);
-				ctx.c_cand = ctx.c_cand2;
-				ctx.p_cand = ctx.p_cand2;
-			}
-
-			for (int j = 0; j < length + ctx.k2p2; ++j)
-				ctx.seq_map[ctx.seq[j] + length].push_back(j);
-
-			backtracking_step(ctx);                             // perform backtracking for this combination (c_cand, p_cand)
-			while (ctx.periods.size() > ctx.k2p2)
-				backtracking_step(ctx);
-
-			if (ctx.k2p2) {
-				ctx.seq.pop_back();
-				ctx.periods.pop_back();
-			}
+		if (ctx.k2p2) {
+		    for (int i = 2; i <= ctx.c_cand; i++)
+			memcpy(&ctx.seq[length - i * ctx.p_cand], &ctx.seq[length - ctx.p_cand], ctx.p_cand * sizeof(int16_t));
+		    ctx.seq.push_back(ctx.c_cand);
+		    ctx.periods.push_back(ctx.p_cand);
+		    ctx.c_cand = ctx.c_cand2;
+		    ctx.p_cand = ctx.p_cand2;
 		}
-		double t2_worker = MPI_Wtime();
-		double elapsed = t2_worker - t1_worker;
-		MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
-		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD); // send maximum tails in this rank
+
+		for (int j = 0; j < length + ctx.k2p2; ++j)
+		    ctx.seq_map[ctx.seq[j] + length].push_back(j);
+
+		backtracking_step(ctx);                             // perform backtracking for this combination (c_cand, p_cand)
+		while (ctx.periods.size() > ctx.k2p2)
+		    backtracking_step(ctx);
+
+		if (ctx.k2p2) {
+		    ctx.seq.pop_back();
+		    ctx.periods.pop_back();
+		}
+	}
+	double t2_worker = MPI_Wtime();
+	double elapsed = t2_worker - t1_worker;
+	MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
+	MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD); // send maximum tails in this rank
         MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 3, MPI_COMM_WORLD);
-	}   
-	MPI_Finalize();
+    }   
+    MPI_Finalize();
 }
