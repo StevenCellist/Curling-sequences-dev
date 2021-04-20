@@ -1,25 +1,24 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 02-04-2021; completed time to length 48: 68 milliseconds*
+// Current version: 20-04-2021; estimated time to length 48: 68 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
 #include <iostream>
+#include <fstream>
+#include <array>
 #include <vector>
-#include <unordered_set>
 #include <map>
 #include <unordered_map>
-#include <array>
-#include <mpi.h>
-#include <fstream>
+#include <unordered_set>
 #include <cstring>
 #include <algorithm>
+#include <mpi.h>
 
 #define FILE_OPEN file.open("Sequences.txt")
 #define OUTPUT file
 #define FILE_CLOSE file.close();
 #define INLINING inline __attribute__((always_inline))
 
-using namespace std;
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
@@ -30,16 +29,11 @@ struct context {
     bool k2p2;
     int c_cand, p_cand, c_cand2, p_cand2, max_tails[length + 1];
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
-    std::vector<v16_t> best_generators;
+    int16_t best_generators[length + 1][length];
     std::map<int16_t, v16_t> generators_memory;
     std::unordered_set<int16_t> change_indices = { 0 };
     std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
 };
-
-v16_t g_max_tails(length + 1, 0);
-std::vector<v16_t> g_best_generators(length + 1);
-
-int g_k1 = 2, g_p1 = 1, g_k2 = 2, g_p2 = 1;
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},   {22, 120},
@@ -182,7 +176,7 @@ void append(context& ctx) {
     int len = real_generator_length(ctx);                       // retrieve actual generator length
     if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
         ctx.max_tails[len] = (int16_t)tail;
-        ctx.best_generators[len] = v16_t(ctx.seq.begin() + length - len, ctx.seq.begin() + length);
+        memcpy(&ctx.best_generators[len][0], &ctx.seq[length - len], sizeof(int16_t) * len);
     }
 }
 
@@ -263,112 +257,124 @@ void backtracking_step(context& ctx) {
 int main(int argc, char *argv[])
 {
 	MPI_Init (&argc, &argv);
-    int np;
-	MPI_Comm_size(MPI_COMM_WORLD, &np);
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank of this process
 	
-	if (rank == 0) {
-		
+	if (rank == 0) {        // master rank
+        
+        double t1_master = MPI_Wtime();
 		FILE_OPEN;
 		OUTPUT << "Length: " << length << std::endl;
 		std::cout << "Hello from the master" << std::endl;
 		
-		int c_cand, p_cand, c_cand2, p_cand2, k2p2;
-		
+        int np;
+        MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
+    
+        int k1 = 2, p1 = 1, k2 = 2, p2 = 1;
+        int c_cand, p_cand, c_cand2, p_cand2, k2p2;
+		int id;
 		// handle processes
 		while(true) {
-			if (g_k1 > length) {
+			if (k1 > length) {
 				std::cout << "Processed all sequences! ";
                 break;
 			}
-            c_cand = g_k1;                          // value for first curl of the tail
-            p_cand = g_p1;                          // value for period of this curl
+            c_cand = k1;                                    // value for first curl of the tail
+            p_cand = p1;                                    // value for period of this curl
             if (c_cand * p_cand <= g_limit) {
                 k2p2 = true;
-                if (g_k2 > length) {
-                    g_k2 = 2;
-                    g_p2 = 1;
-                    int limit = length / g_k1;
-                    if (++g_p1 > limit) {                       // gone out of range?
-                        g_p1 = 1;                               // reset period
-                        ++g_k1;                                 // try new curl
+                if (k2 > length) {
+                    k2 = 2;
+                    p2 = 1;
+                    int limit = length / k1;
+                    if (++p1 > limit) {                     // gone out of range?
+                        p1 = 1;                             // reset period
+                        ++k1;                               // try new curl
                     }
                 }
-                c_cand2 = g_k2;
-                p_cand2 = g_p2;
-                int limit2 = (length + 1) / g_k2;
-                if (++g_p2 > limit2) {
-                    g_p2 = 1;
-                    ++g_k2;
+                c_cand2 = k2;
+                p_cand2 = p2;
+                int limit2 = (length + 1) / k2;
+                if (++p2 > limit2) {
+                    p2 = 1;
+                    ++k2;
                 }
             }
             else {
                 k2p2 = false;
-                int limit = length / g_k1;
-                if (++g_p1 > limit) {                       // gone out of range?
-                    g_p1 = 1;                               // reset period
-                    ++g_k1;                                 // try new curl
+                int limit = length / k1;
+                if (++p1 > limit) {                         // gone out of range?
+                    p1 = 1;                                 // reset period
+                    ++k1;                                   // try new curl
                 }
             }
 			
 			int values[5] = { c_cand, p_cand, c_cand2, p_cand2, k2p2 };
-			int id;
-			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);		// get notified of finished rank
-			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);								// send it new values
+			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
+			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);                                // send it new values
 		}
 
 		// clean up all processes one by one
-		int id;
 		int values[5] = { 0, 0, 0, 0, 0 };
 		double elapsed;
-		int max_tails[length + 1];
-		for (int id = 1; id < np; id++) {
-			MPI_Recv(&id, 1, MPI_INT, id, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);					// get notified that this rank finished
-			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);								// send it terminating values
-			MPI_Recv(&elapsed, 1, MPI_DOUBLE, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);			// receive its elapsed time for logging
-			MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // receive its maximum tails
-			OUTPUT << "Rank: " << id << ", duration: " << elapsed << std::endl;						// log data
-			for (int j = 0; j <= length; ++j)			// update global tails
-				if (max_tails[j] > g_max_tails[j])
+		int max_tails[length + 1] = { 0 };
+        int g_max_tails[length + 1] = { 0 };
+        int16_t best_generators[length + 1][length];
+        int16_t g_best_generators[length + 1][length];
+		for (int i = 1; i < np; i++) {
+			MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // get notified that this rank finished
+			MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);                                 // send it terminating values
+			MPI_Recv(&elapsed, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
+            OUTPUT << "Rank: " << i << ", duration: " << elapsed << std::endl;                      // log data
+			MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
+            MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			for (int j = 0; j <= length; ++j)                                                       // update global tails
+				if (max_tails[j] > g_max_tails[j]) {
 					g_max_tails[j] = max_tails[j];
+                    memcpy(&g_best_generators[j][0], &best_generators[j][0], sizeof(int16_t) * length);
+                }
 		}
 		
 		// process the tails
 		int record = 0;
-		for (int i = 0; i <= length; ++i) {
-			if (g_max_tails[i] > record) {
-				record = g_max_tails[i];
-				if (expected_tails.find(i) == expected_tails.end())
-					OUTPUT << "NEW:" << std::endl;
-				else if (expected_tails[i] != record)
-					OUTPUT << "WRONG:" << std::endl;
-				OUTPUT << i << ": " << record << std::endl;
-			}
-		}
-		std::cout << "Quitting the program..." << std::endl;
+        for (int i = 0; i <= length; ++i) {
+            if (g_max_tails[i] > record) {
+                record = g_max_tails[i];
+                if (expected_tails.find(i) == expected_tails.end())
+                    OUTPUT << "NEW:" << std::endl;
+                else if (expected_tails[i] != record)
+                    OUTPUT << "WRONG:" << std::endl;
+                OUTPUT << i << ": " << record << ", [";
+                for (int x : g_best_generators[i])
+                    if (x != 0) 
+                        OUTPUT << x << ",";
+                OUTPUT << "]" << std::endl;
+            }
+        }
+		
 		FILE_CLOSE;
+        double t2_master = MPI_Wtime();
+		elapsed = t2_master - t1_master;
+        std::cout << "Took " << elapsed << " seconds." << std::endl;
+        std::cout << "Quitting the program..." << std::endl;
 	}
 	
-	else {
+	else {                  // worker ranks
 		
 		std::cout << "Hello from rank " << rank << std::endl;
 		context ctx;
-		for (int i = 0; i <= length; ++i) {                  	// initiate local record vectors
+		for (int i = 0; i <= length; ++i)                  	    // initiate local record vectors
 			ctx.max_tails[i] = 0;
-			ctx.best_generators.push_back({});
-		}
 		
-		double t1 = MPI_Wtime();
+		double t1_worker = MPI_Wtime();
 		
-		MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 		// advertise that this rank is ready to start
-		
+		int values[5];
 		while (true) {
-			int values[5];
-			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);	// get new values
-			if (values[0] == 0)									// terminate if necessary
+			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for a new combination
+			MPI_Recv(&values[0], 5, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
+			if (values[0] == 0)                                 // terminate if necessary
 				break;
-			ctx.c_cand  = values[0];							// store new values
+			ctx.c_cand  = values[0];                            // store new values
 			ctx.p_cand  = values[1];
 			ctx.c_cand2 = values[2];
 			ctx.p_cand2 = values[3];
@@ -400,13 +406,12 @@ int main(int argc, char *argv[])
 				ctx.seq.pop_back();
 				ctx.periods.pop_back();
 			}
-			
-			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD); 	// advertise that this rank is ready for the next combination
 		}
-		double t2 = MPI_Wtime();
-		double elapsed = t2 - t1;
-		MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);				// send elapsed time for logging
-		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);	// send maximum tails in this rank
+		double t2_worker = MPI_Wtime();
+		double elapsed = t2_worker - t1_worker;
+		MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
+		MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD); // send maximum tails in this rank
+        MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 3, MPI_COMM_WORLD);
 	}   
 	MPI_Finalize();
 }
