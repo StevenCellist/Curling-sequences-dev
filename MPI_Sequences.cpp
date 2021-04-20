@@ -273,10 +273,12 @@ int main(int argc, char *argv[])
         int k1 = 2, p1 = 1, k2 = 2, p2 = 1;
         int c_cand, p_cand, c_cand2, p_cand2, k2p2;
 		int id;
+        
+        std::cout << "Distributing sequences";
 		// handle processes
 		while(true) {
 			if (k1 > length) {
-				std::cout << "Processed all sequences! ";
+				std::cout << std::endl << "Distributed all sequences! ";
                 break;
 			}
             c_cand = k1;                                    // value for first curl of the tail
@@ -290,6 +292,7 @@ int main(int argc, char *argv[])
                     if (++p1 > limit) {                     // gone out of range?
                         p1 = 1;                             // reset period
                         ++k1;                               // try new curl
+                        std::cout << ".";
                     }
                 }
                 c_cand2 = k2;
@@ -306,6 +309,7 @@ int main(int argc, char *argv[])
                 if (++p1 > limit) {                         // gone out of range?
                     p1 = 1;                                 // reset period
                     ++k1;                                   // try new curl
+                    std::cout << ".";
                 }
             }
 			
@@ -313,7 +317,8 @@ int main(int argc, char *argv[])
 			MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
 			MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);                                // send it new values
 		}
-
+        
+        std::cout << "Gathering data";
 		// clean up all processes one by one
 		int values[5] = { 0, 0, 0, 0, 0 };
 		double elapsed;
@@ -333,8 +338,10 @@ int main(int argc, char *argv[])
 					g_max_tails[j] = max_tails[j];
                     memcpy(&g_best_generators[j][0], &best_generators[j][0], sizeof(int16_t) * length);
                 }
+                std::cout << ".";
 		}
-		
+		std::cout << std::endl;
+        
 		// process the tails
 		int record = 0;
         for (int i = 0; i <= length; ++i) {
@@ -351,7 +358,7 @@ int main(int argc, char *argv[])
                 OUTPUT << "]" << std::endl;
             }
         }
-		
+		std::cout << "Finished!" << std::endl;
 		FILE_CLOSE;
         double t2_master = MPI_Wtime();
 		elapsed = t2_master - t1_master;
@@ -361,7 +368,6 @@ int main(int argc, char *argv[])
 	
 	else {                  // worker ranks
 		
-		std::cout << "Hello from rank " << rank << std::endl;
 		context ctx;
 		for (int i = 0; i <= length; ++i)                  	    // initiate local record vectors
 			ctx.max_tails[i] = 0;
