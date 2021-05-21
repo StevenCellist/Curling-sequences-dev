@@ -22,7 +22,7 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 100;
+const int length = 200;
 const int g_limit = 16;
 
 struct context {
@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
 	    }
             c_cand = k1;                                    // value for first curl of the tail
             p_cand = p1;                                    // value for period of this curl
-            if (c_cand * p_cand <= g_limit) {
+            if ((c_cand - 1) * p_cand <= g_limit) {
                 k2p2 = true;
                 if (k2 > length) {
                     k2 = 2;
