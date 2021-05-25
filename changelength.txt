@@ -2,4 +2,4 @@ echo "Enter length:"
 read length
 sed -i "25d" MPI_Sequences.cpp
 sed -i "24 a const int length = $length;" MPI_Sequences.cpp
-mpicxx -march=native =std=c++11 -fno-strict-aliasing -O3 MPI_Sequences -o final.out
+mpicxx -march=native =std=c++11 -fno-strict-aliasing -O3 MPI_Sequences.cpp -o final.out
