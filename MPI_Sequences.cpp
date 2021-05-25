@@ -274,7 +274,7 @@ int main(int argc, char *argv[])
         int c_cand, p_cand, c_cand2, p_cand2, k2p2;
 	int id;
         
-        std::cout << "Distributing sequences";
+        std::cout << "Distributing sequences" << std::endl << "2";
 	// handle processes
 	while(true) {
 	    if (k1 > length) {
@@ -292,7 +292,7 @@ int main(int argc, char *argv[])
                     if (++p1 > limit) {                     // gone out of range?
                         p1 = 1;                             // reset period
                         ++k1;                               // try new curl
-                        std::cout << ".";
+                        std::cout << k1;
                     }
                 }
                 c_cand2 = k2;
@@ -301,6 +301,7 @@ int main(int argc, char *argv[])
                 if (++p2 > limit2) {
                     p2 = 1;
                     ++k2;
+		    std::cout << ".";
                 }
             }
             else {
