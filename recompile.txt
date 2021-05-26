@@ -1,5 +1,3 @@
-echo "Enter length:"
-read length
 cd
 cd mpich-3.4.1
 PATH=/home/mpi/mpich-install/bin:$PATH ; export PATH
@@ -7,5 +5,5 @@ cd
 cd Curling-sequences
 git pull
 sed -i "25d" MPI_Sequences.cpp
-sed -i "24 a const int length = $length;" MPI_Sequences.cpp
+sed -i "24 a const int length = $1;" MPI_Sequences.cpp
 mpicxx -march=native -std=c++11 -fno-strict-aliasing -O3 MPI_Sequences.cpp -o final.out
