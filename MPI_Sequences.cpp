@@ -27,7 +27,7 @@ const int g_limit = 16;
 
 struct context {
     bool k2p2;
-    int c_cand, p_cand, c_cand2, p_cand2, max_tails[length + 1];
+    int c_cand, p_cand, c_cand2, p_cand2, c_cand_old, p_cand_old, max_tails[length + 1];
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
     int16_t best_generators[length + 1][length];
     std::map<int16_t, v16_t> generators_memory;
@@ -403,6 +403,8 @@ int main(int argc, char *argv[])
 			memcpy(&ctx.seq[length - i * ctx.p_cand], &ctx.seq[length - ctx.p_cand], ctx.p_cand * sizeof(int16_t));
 		    ctx.seq.push_back(ctx.c_cand);
 		    ctx.periods.push_back(ctx.p_cand);
+		    ctx.c_cand_old = ctx.c_cand;
+		    ctx.p_cand_old = ctx.p_cand;
 		    ctx.c_cand = ctx.c_cand2;
 		    ctx.p_cand = ctx.p_cand2;
 		}
@@ -421,7 +423,7 @@ int main(int argc, char *argv[])
 	}
 	double t2_worker = MPI_Wtime();
 	double elapsed = t2_worker - t1_worker;
-	int last_values[5] = { ctx.c_cand, ctx.p_cand, ctx.c_cand2, ctx.p_cand2, ctx.k2p2 };
+	int last_values[5] = { ctx.c_cand_old, ctx.p_cand_old, ctx.c_cand2, ctx.p_cand2, ctx.k2p2 };
 	MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
 	MPI_Send(&last_values, 5, MPI_INT, 0, 2, MPI_COMM_WORLD);		// send last values for debugging
 	MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 3, MPI_COMM_WORLD); // send maximum tails in this rank
