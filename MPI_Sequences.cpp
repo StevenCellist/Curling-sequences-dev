@@ -322,19 +322,24 @@ int main(int argc, char *argv[])
         std::cout << "Gathering data";
 	// clean up all processes one by one
 	int values[5] = { 0, 0, 0, 0, 0 };
+	int last_values[5];
 	double elapsed;
 	int max_tails[length + 1] = { 0 };
         int g_max_tails[length + 1] = { 0 };
         int16_t best_generators[length + 1][length];
         int16_t g_best_generators[length + 1][length];
 	for (int i = 1; i < np; i++) {
-	    MPI_Recv(&id, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // get notified that this rank finished
-	    MPI_Send(&values[0], 5, MPI_INT, i, 0, MPI_COMM_WORLD);                                 // send it terminating values
-	    MPI_Recv(&elapsed, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
-            OUTPUT << "Rank: " << i << ", duration: " << elapsed << std::endl;                      // log data
-	    MPI_Recv(&max_tails[0], length + 1, MPI_INT, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
-            MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, i, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-	    for (int j = 0; j <= length; ++j)                                                       // update global tails
+	    MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);         // get notified that this rank finished
+	    MPI_Send(&values[0], 5, MPI_INT, id, 0, MPI_COMM_WORLD);                                 // send it terminating values
+	    MPI_Recv(&elapsed, 1, MPI_DOUBLE, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
+	    MPI_Recv(&last_values[0], 5, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            OUTPUT << "Rank: " << id << ", duration: " << elapsed;                      	     // log data
+	    for (int x : last_values)
+		    OUTPUT << " " << x;
+	    OUTPUT << std::endl;
+	    MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
+            MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	    for (int j = 0; j <= length; ++j)                                                        // update global tails
 		if (max_tails[j] > g_max_tails[j]) {
 		    g_max_tails[j] = max_tails[j];
                     memcpy(&g_best_generators[j][0], &best_generators[j][0], sizeof(int16_t) * length);
@@ -416,9 +421,11 @@ int main(int argc, char *argv[])
 	}
 	double t2_worker = MPI_Wtime();
 	double elapsed = t2_worker - t1_worker;
+	int last_values[5] = { ctx.c_cand, ctx.p_cand, ctx.c_cand2, ctx.p_cand2, ctx.k2p2 };
 	MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
-	MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD); // send maximum tails in this rank
-        MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 3, MPI_COMM_WORLD);
+	MPI_Send(&last_values, 5, MPI_INT, 0, 2, MPI_COMM_WORLD);		// send last values for debugging
+	MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 3, MPI_COMM_WORLD); // send maximum tails in this rank
+        MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 4, MPI_COMM_WORLD);
     }   
     MPI_Finalize();
 }
