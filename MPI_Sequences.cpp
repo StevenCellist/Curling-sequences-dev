@@ -22,14 +22,14 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 50;
+const int length = 100;
 const int g_limit2 = 16;
 
 struct context {
-    bool k2p2, k3p3;
-    int c_cand, p_cand, max_tails[length + 1];
+    bool c2p2 = false, c3p3 = false;
+    int c_cand = 0, p_cand = 0, max_tails[length + 1] = { 0 };
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
-    int16_t best_generators[length + 1][length];
+    int16_t best_generators[length + 1][length] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
     std::unordered_set<int16_t> change_indices = { 0 };
     std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
@@ -95,7 +95,7 @@ INLINING
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.k2p2 + ctx.k3p3)                      // stop if tail is empty
+        if (ctx.periods.size() == ctx.c2p2 + ctx.c3p3)                      // stop if tail is empty
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -291,10 +291,7 @@ int main(int argc, char *argv[])
                             c3 = 2;
                             if (++p2 > (length + 1) / c2) {
                                 p2 = 1;
-                                if (++c2 > length + 1) {
-                                    c2 = 2;
-                                    p1++;
-                                }
+                                c2++;
                             }
                         }
                     }
@@ -306,7 +303,11 @@ int main(int argc, char *argv[])
                         p2 = 1;
                         if (++c2 > length + 1) {
                             c2 = 2;
-                            p1++;
+                            if (++p1 > length / c1) {
+                                p1 = 1;
+                                c1++;
+                                std::cout << std::endl << c1;
+                            }
                             std::cout << " " << p1;
                         }
                     }
@@ -394,27 +395,30 @@ int main(int argc, char *argv[])
             if (values[0] == 0)                                 // terminate if necessary
                 break;
             int c1 = values[0], p1 = values[1];
-            ctx.k2p2 = values[2];
+            ctx.c2p2 = values[2];
             int c2 = values[3], p2 = values[4];
-            ctx.k3p3 = values[5];
-
-            for (auto& v : ctx.seq_map)
-                v.clear();
+            ctx.c3p3 = values[5];
 
             for (int i = 0; i < length; ++i)                    // initiate sequence
                 ctx.seq[i] = (int16_t)(-length + i);
 
-            if (ctx.k2p2) {
+            if (ctx.c2p2) {
                 for (int i = 2; i <= c1; i++)
                     memcpy(&ctx.seq[length - i * p1], &ctx.seq[length - p1], p1 * sizeof(int16_t));
                 ctx.seq.push_back(c1);
                 ctx.periods.push_back(p1);
+                ctx.change_indices.insert(0);
             }
-
-            for (int j = 0; j < length + ctx.k2p2; ++j)
+            
+            ctx.change_indices.clear();
+            
+            for (auto& v : ctx.seq_map)
+                v.clear();
+            
+            for (int j = 0; j < length + ctx.c2p2; ++j)
                 ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-            if (ctx.k3p3) {
+            if (ctx.c3p3) {
                 ctx.c_cand = c2;
                 ctx.p_cand = p2;
                 if (test_1(ctx) && test_2(ctx)) {
@@ -426,7 +430,8 @@ int main(int argc, char *argv[])
                     ctx.seq.swap(ctx.seq_new);                                  // retrieve the new sequence from test_2
                     ctx.seq.push_back((int16_t)c2);                             // add the candidates because we passed test_1 and test_2
                     ctx.periods.push_back((int16_t)p2);
-                    ctx.seq_map[ctx.c_cand + length].push_back(length + 1);
+                    ctx.seq_map[c2 + length].push_back(length + 1);
+                    ctx.change_indices.insert(1);
                 }
                 else {
                     ctx.seq.pop_back();
@@ -435,17 +440,17 @@ int main(int argc, char *argv[])
                 }
             }
 
-            ctx.c_cand = values[(ctx.k2p2 + ctx.k3p3) * 3];
-            ctx.p_cand = values[(ctx.k2p2 + ctx.k3p3) * 3 + 1];
+            ctx.c_cand = values[(ctx.c2p2 + ctx.c3p3) * 3];
+            ctx.p_cand = values[(ctx.c2p2 + ctx.c3p3) * 3 + 1];
 
             backtracking_step(ctx);                             // perform backtracking for this combination (c_cand, p_cand)
-            while (ctx.periods.size() > ctx.k2p2 + ctx.k3p3)
+            while (ctx.periods.size() > ctx.c2p2 + ctx.c3p3)
                 backtracking_step(ctx);
 
-            if (ctx.k2p2) {
+            if (ctx.c2p2) {
                 ctx.seq.pop_back();
                 ctx.periods.pop_back();
-                if (ctx.k3p3) {
+                if (ctx.c3p3) {
                     ctx.seq.pop_back();
                     ctx.periods.pop_back();
                 }
