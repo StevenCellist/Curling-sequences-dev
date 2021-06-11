@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 20-04-2021; estimated time to length 48: 68 milliseconds*
+// Current version: 11-06-2021; estimated time to length 48: 68 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
 #include <iostream>
@@ -22,27 +22,27 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 100;
-const int g_limit2 = 16;
+const int length = 100;     // Tweakable parameter: set this to the desired generator length (n)
+const int g_limit2 = 16;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks)
 
-struct context {
+struct context {                                            // all necessary variables for a rank
     bool c2p2 = false, c3p3 = false;
     int c_cand = 0, p_cand = 0, max_tails[length + 1] = { 0 };
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
     int16_t best_generators[length + 1][length] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
     std::unordered_set<int16_t> change_indices = { 0 };
-    std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
+    std::array<std::vector<int>, 2 * length + 2> seq_map;   // adjust for + 1 index on positive and negative side
 };
 
-std::unordered_map<int, int> expected_tails = {
+std::unordered_map<int, int> expected_tails = {             // the record tail lengths we found so far
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},   {22, 120},
     {48, 131},  {68, 132},  {73, 133},  {77, 173},  {85, 179},   {115, 215},  {116, 228},  {118, 229},  {128, 332},  {132, 340},
     {133, 342}, {149, 343}, {154, 356}, {176, 406}, {197, 1668}, {199, 1669}, {200, 1670}, {208, 1708}, {217, 1836}, {290, 3382}
 };
 
 bool diff(const int16_t* p1, const int16_t* p2, int count) {
-    int count64 = count / 4;    // four 16-bit ints in uint64_t
+    int count64 = count / 4;    // compare four 16-bit ints in uint64_t simultaneously
     if (count64) {
         uint64_t* p1_64 = (uint64_t*)p1;
         uint64_t* p2_64 = (uint64_t*)p2;
@@ -64,6 +64,7 @@ bool diff(const int16_t* p1, const int16_t* p2, int count) {
     return false;
 }
 
+// find the curl of the sequence
 int krul(const v16_t& s, int& period, int l, int minimum) {
     int curl = minimum - 1;                                 // base value for curl
     int limit = l / minimum;                                // limit up to which to check for repetition
@@ -83,6 +84,7 @@ int krul(const v16_t& s, int& period, int l, int minimum) {
     return curl;
 }
 
+// erase element from vector
 void erase(std::vector<int>& v, int x) {
     int i = 0;
     while (v[i] != x)
@@ -91,11 +93,11 @@ void erase(std::vector<int>& v, int x) {
     v.pop_back();           // remove (now duplicated) last value
 }
 
-INLINING
+INLINING // modify the candidate(s) and maybe the sequence to try and maximize the tail length
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.c2p2 + ctx.c3p3)                      // stop if tail is empty
+        if (ctx.periods.size() == ctx.c2p2 + ctx.c3p3)                      // stop if tail is empty (relative to depth)
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -138,13 +140,14 @@ void up(context& ctx) {
     }
 }
 
-int real_generator_length(context& ctx) {       // returns the index of the last unique value of the generator
+// find the shortest generator that could have generated this tail
+int real_generator_length(context& ctx) {
     int i = 0;
     while ((ctx.seq[i] == (-length + i)) && (++i != length)) {}
     return (length - i);
 }
 
-INLINING
+INLINING // construct the tail for this generator
 void append(context& ctx) {
     for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
         for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
@@ -180,7 +183,7 @@ void append(context& ctx) {
     }
 }
 
-// this function checks whether the current sequence allows for the candidates to be added
+// check whether the current sequence allows for the candidates to be added
 INLINING
 bool test_1(context& ctx) {
     int l = (int)ctx.seq.size() - 1;                            // last element of pattern to check
@@ -231,7 +234,7 @@ bool test_1(context& ctx) {
     return true;
 }
 
-// this function checks whether the proposed change invalidates the generator (regarding curl or period)
+// check whether the proposed candidates invalidate the generator (regarding curl or period)
 INLINING
 bool test_2(context& ctx) {
     int l = (int)ctx.seq_new.size();
@@ -246,6 +249,7 @@ bool test_2(context& ctx) {
     return (curl == ctx.c_cand and period == ctx.p_cand);                           // and also check the new candidate
 }
 
+// set a new step in the backtracking algorithm
 INLINING
 void backtracking_step(context& ctx) {
     if (test_1(ctx) && test_2(ctx)) // depending on whether the sequence will improve the tail length...
@@ -270,19 +274,19 @@ int main(int argc, char *argv[])
         int np;
         MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
         
-        int c1 = 2, p1 = 1, c2 = 2, p2 = 1, c3 = 2, p3 = 1;
+        int c1 = 2, p1 = 1, c2 = 2, p2 = 1, c3 = 2, p3 = 1;         // we support a depth of three (for additional fragmentation and thus scalability)
         int id;
         
         std::cout << "Distributing sequences" << std::endl << "2";
         // handle processes
         while(true) {
             int values[8];
-            if (c1 > length) {
+            if (c1 > length) {                                              // end of program
                 std::cout << std::endl << "Distributed all sequences!" << std::endl;
                 break;
             }
-            if ((c1 - 1) * p1 <= 16) {
-                if (c2 <= c1) {
+            if ((c1 - 1) * p1 <= g_limit) {                                 // enter depth two
+                if (c2 <= c1) {                                             // enter depth three
                     int new_values[8] = { c1, p1, 1, c2, p2, 1, c3, p3 };
                     memcpy(&values, new_values, sizeof(new_values));
                     if (++p3 > (length + 2) / c3) {
@@ -382,7 +386,7 @@ int main(int argc, char *argv[])
 	else {                  // worker ranks
 		
 	    context ctx;
-	    for (int i = 0; i <= length; ++i)                  	    // initiate local record vectors
+	    for (int i = 0; i <= length; ++i)                  	        // initiate local record vectors
             ctx.max_tails[i] = 0;
 		
 	    double t1_worker = MPI_Wtime();
@@ -390,19 +394,21 @@ int main(int argc, char *argv[])
 	    int values[8];
         int last_values[8];
 	    while (true) {
-            MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);  // advertise that this rank is ready for a new combination
+            MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);      // advertise that this rank is ready for a new combination
             MPI_Recv(&values[0], 8, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
-            if (values[0] == 0)                                 // terminate if necessary
+            if (values[0] == 0)                                     // terminate if necessary
                 break;
             int c1 = values[0], p1 = values[1];
             ctx.c2p2 = values[2];
             int c2 = values[3], p2 = values[4];
             ctx.c3p3 = values[5];
 
-            for (int i = 0; i < length; ++i)                    // initiate sequence
+            ctx.change_indices.clear();
+            
+            for (int i = 0; i < length; ++i)                        // initiate sequence
                 ctx.seq[i] = (int16_t)(-length + i);
 
-            if (ctx.c2p2) {
+            if (ctx.c2p2) {                                         // if we use depth 2, we add the candidates and change the sequence accordingly
                 for (int i = 2; i <= c1; i++)
                     memcpy(&ctx.seq[length - i * p1], &ctx.seq[length - p1], p1 * sizeof(int16_t));
                 ctx.seq.push_back(c1);
@@ -410,15 +416,13 @@ int main(int argc, char *argv[])
                 ctx.change_indices.insert(0);
             }
             
-            ctx.change_indices.clear();
-            
-            for (auto& v : ctx.seq_map)
+            for (auto& v : ctx.seq_map)                             // clear the map
                 v.clear();
             
-            for (int j = 0; j < length + ctx.c2p2; ++j)
+            for (int j = 0; j < length + ctx.c2p2; ++j)             // and reconstruct
                 ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-            if (ctx.c3p3) {
+            if (ctx.c3p3) {                                         // if we use depth 3, try to add the candidates after performing test_1 and test_2 for validity
                 ctx.c_cand = c2;
                 ctx.p_cand = p2;
                 if (test_1(ctx) && test_2(ctx)) {
@@ -440,14 +444,14 @@ int main(int argc, char *argv[])
                 }
             }
 
-            ctx.c_cand = values[(ctx.c2p2 + ctx.c3p3) * 3];
+            ctx.c_cand = values[(ctx.c2p2 + ctx.c3p3) * 3];         // select relevant candidates
             ctx.p_cand = values[(ctx.c2p2 + ctx.c3p3) * 3 + 1];
 
-            backtracking_step(ctx);                             // perform backtracking for this combination (c_cand, p_cand)
+            backtracking_step(ctx);                                 // perform backtracking for this combination (c_cand, p_cand)
             while (ctx.periods.size() > ctx.c2p2 + ctx.c3p3)
                 backtracking_step(ctx);
 
-            if (ctx.c2p2) {
+            if (ctx.c2p2) {                                         // clear the depth 2 and 3 candidates, if necessary
                 ctx.seq.pop_back();
                 ctx.periods.pop_back();
                 if (ctx.c3p3) {
