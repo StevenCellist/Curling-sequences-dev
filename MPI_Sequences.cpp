@@ -22,8 +22,8 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 100;     // Tweakable parameter: set this to the desired generator length (n)
-const int g_limit2 = 16;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks)
+const int length = 200;     // Tweakable parameter: set this to the desired generator length (n)
+const int g_limit = 24;     // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks)
 
 struct context {                                            // all necessary variables for a rank
     bool c2p2 = false, c3p3 = false;
@@ -286,7 +286,7 @@ int main(int argc, char *argv[])
                 break;
             }
             if ((c1 - 1) * p1 <= g_limit) {                                 // enter depth two
-                if (c2 <= c1) {                                             // enter depth three
+                if (c2 <= g_limit - c1) {                                   // enter depth three
                     int new_values[8] = { c1, p1, 1, c2, p2, 1, c3, p3 };
                     memcpy(&values, new_values, sizeof(new_values));
                     if (++p3 > (length + 2) / c3) {
