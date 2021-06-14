@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 11-06-2021; estimated time to length 48: 68 milliseconds*
+// Current version: 14-06-2021; estimated time to length 48: 100 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
 #include <iostream>
@@ -22,12 +22,12 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 200;     // Tweakable parameter: set this to the desired generator length (n)
-const int g_limit = 24;     // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks)
+const int length = 100;      // Tweakable parameter: set this to the desired generator length (n)
+const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
+const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
 
-struct context {                                            // all necessary variables for a rank
-    bool c2p2 = false, c3p3 = false;
-    int c_cand = 0, p_cand = 0, max_tails[length + 1] = { 0 };
+struct context {                                            // all necessary variables for a rank;
+    int c_cand = 0, p_cand = 0, depth = 1, max_tails[length + 1] = { 0 };
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
     int16_t best_generators[length + 1][length] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
@@ -97,7 +97,7 @@ INLINING // modify the candidate(s) and maybe the sequence to try and maximize t
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.c2p2 + ctx.c3p3)                      // stop if tail is empty (relative to depth)
+        if (ctx.periods.size() == ctx.depth - 1)                            // stop if tail is empty (relative to depth)
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -262,88 +262,89 @@ int main(int argc, char *argv[])
 {
     MPI_Init (&argc, &argv);
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank of this process
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank number of this process
 	
-    if (rank == 0) {        // master rank
+    if (rank == 0) { // master rank
         
         double t1_master = MPI_Wtime();
         FILE_OPEN;
         OUTPUT << "Length: " << length << std::endl;
         std::cout << "Hello from the master" << std::endl;
-            
+        
         int np;
         MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
         
-        int c1 = 2, p1 = 1, c2 = 2, p2 = 1, c3 = 2, p3 = 1;         // we support a depth of three (for additional fragmentation and thus scalability)
-        int id;
+        int depth = 1;
+        int values[1 + 2 * max_depth] = { 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1 };
         
-        std::cout << "Distributing sequences" << std::endl << "2";
-        // handle processes
-        while(true) {
-            int values[8];
-            if (c1 > length) {                                              // end of program
-                std::cout << std::endl << "Distributed all sequences!" << std::endl;
+        // do initial values to get us started
+        int sum = values[1] * values[2];
+        for (depth = 1; depth < max_depth; depth++) {
+            int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+            if (sum + next > limit) {
                 break;
             }
-            if ((c1 - 1) * p1 <= g_limit) {                                 // enter depth two
-                if (c2 <= g_limit - c1) {                                   // enter depth three
-                    int new_values[8] = { c1, p1, 1, c2, p2, 1, c3, p3 };
-                    memcpy(&values, new_values, sizeof(new_values));
-                    if (++p3 > (length + 2) / c3) {
-                        p3 = 1;
-                        if (++c3 > length + 2) {
-                            c3 = 2;
-                            if (++p2 > (length + 1) / c2) {
-                                p2 = 1;
-                                c2++;
-                            }
-                        }
-                    }
-                }
-                else {
-                    int new_values[8] = { c1, p1, 1, c2, p2, 0, 0, 0 };
-                    memcpy(&values, new_values, sizeof(new_values));
-                    if (++p2 > (length + 1) / c2) {
-                        p2 = 1;
-                        if (++c2 > length + 1) {
-                            c2 = 2;
-                            if (++p1 > length / c1) {
-                                p1 = 1;
-                                c1++;
-                                std::cout << std::endl << c1;
-                            }
-                            std::cout << " " << p1;
-                        }
-                    }
-                }
+            sum += next;
+        }
+        if (depth < values[0]) {
+            for (int i = 1; i <= values[0] - depth; i++) {
+                values[(depth + i) * 2 - 1] = 2;
+                values[(depth + i) * 2] = 1;
+            }
+        }
+        values[0] = depth;
+
+        // keep running until the end
+        while (values[1] <= length) {
+            if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
+                int id = 0;
+                MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
+                MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 0, MPI_COMM_WORLD);                // send it new values (instead of std::cout)
+                values[depth * 2]++;                                                // increase period by one
             }
             else {
-                int new_values[8] = { c1, p1, 0, 0, 0, 0, 0, 0 };
-                memcpy(&values, new_values, sizeof(new_values));
-                if (++p1 > length / c1) {
-                    p1 = 1;
-                    c1++;
-                    std::cout << std::endl << c1;
+                values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
+                values[depth * 2 - 1]++;                                            // and increase curl by one
+                if (values[depth * 2 - 1] >= length + depth) {                      // curl too large for sequence size?
+                    if (depth == 1)
+                        continue;                                                   // if depth is already one, this will be the end of the program
+                    else
+                        values[(depth - 1) * 2]++;                                  // otherwise, increase period of previous depth with one
                 }
+                int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
+                for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
+                    int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+                    if (sum + next > limit) {
+                        break;                                                      // if we go over the limit, we do not do this combination
+                    }
+                    sum += next;                                                    // otherwise, we accept this depth
+                }
+                if (depth < values[0]) {                                            // did we decrease in depth?
+                    for (int i = 1; i <= values[0] - depth; i++) {                  // then we need to reset the values of that depth
+                        values[(depth + i) * 2 - 1] = 2;
+                        values[(depth + i) * 2] = 1;
+                        values[(depth + i) * 2 - 2]++;                              // and increase the period of previous depth with one
+                    }
+                }
+                values[0] = depth;                                                  // store the current depth
             }
-            MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
-            MPI_Send(&values[0], 8, MPI_INT, id, 0, MPI_COMM_WORLD);                                // send it new values
         }
         
         std::cout << "Gathering data";
         // clean up all processes one by one
-        int values[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-        int last_values[8];
+        values[0] = 0;
+        int last_values[1 + 2 * max_depth];
         double elapsed;
         int max_tails[length + 1] = { 0 };
         int g_max_tails[length + 1] = { 0 };
         int16_t best_generators[length + 1][length];
         int16_t g_best_generators[length + 1][length];
         for (int i = 1; i < np; i++) {
+            int id = 0;
             MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);         // get notified that this rank finished
-            MPI_Send(&values[0], 8, MPI_INT, id, 0, MPI_COMM_WORLD);                                 // send it terminating values
+            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 0, MPI_COMM_WORLD);                                 // send it terminating values
             MPI_Recv(&elapsed, 1, MPI_DOUBLE, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);             // receive its elapsed time for logging
-            MPI_Recv(&last_values[0], 8, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             OUTPUT << "Rank: " << id << ", duration: " << elapsed;                      	         // log data
             for (int x : last_values)
                 OUTPUT << " " << x;
@@ -383,48 +384,46 @@ int main(int argc, char *argv[])
         std::cout << "Quitting the program..." << std::endl;
 	}
 	
-	else {                  // worker ranks
+	else { // worker ranks
 		
 	    context ctx;
-	    for (int i = 0; i <= length; ++i)                  	        // initiate local record vectors
+	    for (int i = 0; i <= length; ++i)                  	                    // initiate local record vectors
             ctx.max_tails[i] = 0;
 		
 	    double t1_worker = MPI_Wtime();
 		
-	    int values[8];
-        int last_values[8];
+	    int values[1 + 2 * max_depth];
+        int last_values[1 + 2 * max_depth];
 	    while (true) {
-            MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);      // advertise that this rank is ready for a new combination
-            MPI_Recv(&values[0], 8, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
-            if (values[0] == 0)                                     // terminate if necessary
-                break;
-            int c1 = values[0], p1 = values[1];
-            ctx.c2p2 = values[2];
-            int c2 = values[3], p2 = values[4];
-            ctx.c3p3 = values[5];
+            MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);                  // advertise that this rank is ready for a new combination
+            MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
+            if (values[0] == 0)                                                 // terminate if necessary
+            break;
+            ctx.depth = values[0];
 
             ctx.change_indices.clear();
-            
-            for (int i = 0; i < length; ++i)                        // initiate sequence
+
+            for (int i = 0; i < length; ++i)                                    // initiate sequence
                 ctx.seq[i] = (int16_t)(-length + i);
 
-            if (ctx.c2p2) {                                         // if we use depth 2, we add the candidates and change the sequence accordingly
-                for (int i = 2; i <= c1; i++)
-                    memcpy(&ctx.seq[length - i * p1], &ctx.seq[length - p1], p1 * sizeof(int16_t));
-                ctx.seq.push_back(c1);
-                ctx.periods.push_back(p1);
+            if (ctx.depth > 1) {                                                // if we use depth 2, we add the first candidates and change the sequence accordingly
+                for (int i = 2; i <= values[1]; i++)
+                    memcpy(&ctx.seq[length - i * values[2]], &ctx.seq[length - values[2]], values[2] * sizeof(int16_t));
+                ctx.seq.push_back(values[1]);
+                ctx.periods.push_back(values[2]);
                 ctx.change_indices.insert(0);
             }
-            
-            for (auto& v : ctx.seq_map)                             // clear the map
+
+            for (auto& v : ctx.seq_map)                                         // clear the map
                 v.clear();
-            
-            for (int j = 0; j < length + ctx.c2p2; ++j)             // and reconstruct
+
+            for (int j = 0; j < length + bool(ctx.depth - 1); ++j)              // and reconstruct
                 ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-            if (ctx.c3p3) {                                         // if we use depth 3, try to add the candidates after performing test_1 and test_2 for validity
-                ctx.c_cand = c2;
-                ctx.p_cand = p2;
+            bool next = false;
+            for (int i = 3; i <= ctx.depth; i++) {                              // if we use depth 3 or more, try to add the candidates after performing test_1 and test_2 for validity
+                ctx.c_cand = values[i * 2 - 3];
+                ctx.p_cand = values[i * 2 - 2];
                 if (test_1(ctx) && test_2(ctx)) {
                     for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
                         for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
@@ -432,40 +431,40 @@ int main(int argc, char *argv[])
                         ctx.seq_map[ctx.pairs[i + 1] + length].clear();         // and delete their previous entries
                     }
                     ctx.seq.swap(ctx.seq_new);                                  // retrieve the new sequence from test_2
-                    ctx.seq.push_back((int16_t)c2);                             // add the candidates because we passed test_1 and test_2
-                    ctx.periods.push_back((int16_t)p2);
-                    ctx.seq_map[c2 + length].push_back(length + 1);
-                    ctx.change_indices.insert(1);
+                    ctx.seq.push_back((int16_t)ctx.c_cand);                     // add the candidates because we passed test_1 and test_2
+                    ctx.periods.push_back((int16_t)ctx.p_cand);
+                    ctx.seq_map[ctx.c_cand + length].push_back(length + 1);
+                    ctx.change_indices.insert(i - 2);
                 }
                 else {
-                    ctx.seq.pop_back();
-                    ctx.periods.pop_back();
-                    continue;
+                    for (int j = 0; j <= i - 3; j++) {
+                        ctx.seq.pop_back();
+                        ctx.periods.pop_back();
+                    }
+                    next = true;
+                    break;
                 }
             }
+            if (next)
+                continue;
+            ctx.c_cand = values[ctx.depth * 2 - 1];         // select relevant candidates
+            ctx.p_cand = values[ctx.depth * 2];
 
-            ctx.c_cand = values[(ctx.c2p2 + ctx.c3p3) * 3];         // select relevant candidates
-            ctx.p_cand = values[(ctx.c2p2 + ctx.c3p3) * 3 + 1];
-
-            backtracking_step(ctx);                                 // perform backtracking for this combination (c_cand, p_cand)
-            while (ctx.periods.size() > ctx.c2p2 + ctx.c3p3)
+            backtracking_step(ctx);                         // perform backtracking for this combination (c_cand, p_cand)
+            while (ctx.periods.size() >= ctx.depth)
                 backtracking_step(ctx);
 
-            if (ctx.c2p2) {                                         // clear the depth 2 and 3 candidates, if necessary
+            for (int i = 1; i < ctx.depth; i++) {           // clear the depth > 1 candidates, if necessary
                 ctx.seq.pop_back();
                 ctx.periods.pop_back();
-                if (ctx.c3p3) {
-                    ctx.seq.pop_back();
-                    ctx.periods.pop_back();
-                }
             }
             memcpy(&last_values, values, sizeof(values));
         }
         double t2_worker = MPI_Wtime();
         double elapsed = t2_worker - t1_worker;
-        MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                // send elapsed time for logging
-        MPI_Send(&last_values, 8, MPI_INT, 0, 2, MPI_COMM_WORLD);		        // send last values for debugging
-        MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 3, MPI_COMM_WORLD); // send maximum tails in this rank
+        MPI_Send(&elapsed, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);                        // send elapsed time for logging
+        MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 0, 2, MPI_COMM_WORLD);		// send last values for debugging
+        MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 3, MPI_COMM_WORLD);         // send maximum tails in this rank
         MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 4, MPI_COMM_WORLD);
     }   
     MPI_Finalize();
