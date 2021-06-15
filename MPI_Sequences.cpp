@@ -22,7 +22,7 @@
 typedef std::vector<int16_t> v16_t;
 std::ofstream file;
 
-const int length = 100;      // Tweakable parameter: set this to the desired generator length (n)
+const int length = 100;     // Tweakable parameter: set this to the desired generator length (n)
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
 
@@ -274,27 +274,14 @@ int main(int argc, char *argv[])
         int np;
         MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
         
-        int depth = 1;
-        int values[1 + 2 * max_depth] = { 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1 };
+        int values[1 + 2 * max_depth];
+        values[0] = max_depth;
+        for (int i = 1; i <= max_depth; i++) {
+            values[2 * i - 1] = 2;
+            values[2 * i] = 1;
+        }
+        int depth = max_depth;
         
-        // do initial values to get us started
-        int sum = values[1] * values[2];
-        for (depth = 1; depth < max_depth; depth++) {
-            int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
-            if (sum + next > limit) {
-                break;
-            }
-            sum += next;
-        }
-        if (depth < values[0]) {
-            for (int i = 1; i <= values[0] - depth; i++) {
-                values[(depth + i) * 2 - 1] = 2;
-                values[(depth + i) * 2] = 1;
-            }
-        }
-        values[0] = depth;
-
-        // keep running until the end
         while (values[1] <= length) {
             if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
                 int id = 0;
@@ -320,11 +307,9 @@ int main(int argc, char *argv[])
                     sum += next;                                                    // otherwise, we accept this depth
                 }
                 if (depth < values[0]) {                                            // did we decrease in depth?
-                    for (int i = 1; i <= values[0] - depth; i++) {                  // then we need to reset the values of that depth
-                        values[(depth + i) * 2 - 1] = 2;
-                        values[(depth + i) * 2] = 1;
-                        values[(depth + i) * 2 - 2]++;                              // and increase the period of previous depth with one
-                    }
+                    values[depth * 2 + 1] = 2;                                      // then we need to reset the values of that depth
+                    values[depth * 2 + 2] = 1;
+                    values[depth * 2]++;                                            // and increase the period of previous depth with one
                 }
                 values[0] = depth;                                                  // store the current depth
             }
