@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 02-04-2021; completed time to length 48: 68 milliseconds*
+// Current version: 07-06-2021; completed time to length 48: 68 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
 
 #include <iostream>
@@ -18,7 +18,6 @@
 #define OUTPUT std::cout
 #define FILE_CLOSE  
 #define INLINING __declspec(noinline)
-//#define INLINING __forceinline
 #else // gcc (Linux)
 #include <fstream>
 #include <cstring>
@@ -33,13 +32,13 @@ std::ofstream file;
 using namespace std::chrono;
 typedef std::vector<int16_t> v16_t;
 
-const int length = 140;
-const int g_limit = 16;
-const int thread_count = std::thread::hardware_concurrency();
+const int length = 100;     // Tweakable parameter: set this to the desired generator length (n)
+const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
+const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
+const int thread_count = 8; // std::thread::hardware_concurrency(); // Tweakable parameter: selects all hardware threads by default
 
 struct context {
-    bool k2p2;
-    int c_cand, p_cand, c_cand2, p_cand2;
+    int c_cand = 0, p_cand = 0, depth = 1;
     v16_t seq = v16_t(length), seq_new, periods, max_tails, pairs, temp;
     std::vector<v16_t> best_generators;
     std::map<int16_t, v16_t> generators_memory;
@@ -49,9 +48,9 @@ struct context {
 
 v16_t g_max_tails(length + 1, 0);
 std::vector<v16_t> g_best_generators(length + 1);
-std::mutex m_tails, m_kp;
+std::mutex m_tails, m_cp;
 
-int g_k1 = 2, g_p1 = 1, g_k2 = 2, g_p2 = 1;
+int values[11] = { 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1 };
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},   {22, 120},
@@ -113,7 +112,7 @@ INLINING
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.k2p2)                                 // stop if tail is empty
+        if (ctx.periods.size() == ctx.depth - 1)                            // stop if tail is empty
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -282,69 +281,128 @@ void backtracking() {
         ctx.best_generators.push_back({});
     }
     auto t1 = high_resolution_clock::now();
+    int new_values[11];
+    int last_values[11];
+    {
+        std::lock_guard<std::mutex> l(m_cp);
+        int depth = values[0];
+        // do initial values to get us started
+        int sum = values[1] * values[2];
+        for (depth = 1; depth < 5; depth++) {
+            int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+            if (sum + next > limit) {
+                break;
+            }
+            sum += next;
+        }
+        if (depth < values[0]) {
+            for (int i = 1; i <= values[0] - depth; i++) {
+                values[(depth + i) * 2 - 1] = 2;
+                values[(depth + i) * 2] = 1;
+            }
+        }
+        values[0] = depth;
+    }
+    
     while (true) {
         {
-            std::lock_guard<std::mutex> l(m_kp);        // lock g_k1 and g_p1
-            if (g_k1 > length)
-                break;
-            ctx.c_cand = g_k1;                          // value for first curl of the tail
-            ctx.p_cand = g_p1;                          // value for period of this curl
-            if (ctx.c_cand * ctx.p_cand <= g_limit) {
-                ctx.k2p2 = true;
-                if (g_k2 > length + 1) {
-                    g_k2 = 2;
-                    g_p2 = 1;
-                    int limit = length / g_k1;
-                    if (++g_p1 > limit) {                       // gone out of range?
-                        g_p1 = 1;                               // reset period
-                        ++g_k1;                                 // try new curl
-                    }
-                    continue;
-                }
-                ctx.c_cand2 = g_k2;
-                ctx.p_cand2 = g_p2;
-                int limit2 = (length + 1) / g_k2;
-                if (++g_p2 > limit2) {
-                    g_p2 = 1;
-                    ++g_k2;
-                }
+            std::lock_guard<std::mutex> l(m_cp);
+            int depth = values[0];
+            if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
+                memcpy(&new_values, values, sizeof(values));
+                values[depth * 2]++;                                                // increase period by one
             }
             else {
-                ctx.k2p2 = false;
-                int limit = length / g_k1;
-                if (++g_p1 > limit) {                       // gone out of range?
-                    g_p1 = 1;                               // reset period
-                    ++g_k1;                                 // try new curl
+                values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
+                values[depth * 2 - 1]++;                                            // and increase curl by one
+                if (values[depth * 2 - 1] >= length + depth) {                      // curl too large for sequence size?
+                    if (depth == 1)
+                        break;                                                      // if depth is already one, this will be the end of the program
+                    else
+                        values[(depth - 1) * 2]++;                                  // otherwise, increase period of previous depth with one
                 }
+                int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
+                for (depth = 1; depth < 5; depth++) {                               // check the (weighed) depth that matches current values
+                    int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+                    if (sum + next > limit) {
+                        break;                                                      // if we go over the limit, we do not do this combination
+                    }
+                    sum += next;                                                    // otherwise, we accept this depth
+                }
+                if (depth < values[0]) {                                            // did we decrease in depth?
+                    for (int i = 1; i <= values[0] - depth; i++) {                  // then we need to reset the values of that depth
+                        values[(depth + i) * 2 - 1] = 2;
+                        values[(depth + i) * 2] = 1;
+                        values[(depth + i) * 2 - 2]++;                              // and increase the period of previous depth with one
+                    }
+                }
+                values[0] = depth;                                                  // store the current depth
             }
         }
+        
 
-        for (auto& v : ctx.seq_map)
-            v.clear();
+        if (new_values[0] == 0)                                     // terminate if necessary
+            break;
+        ctx.depth = new_values[0];
 
-        for (int i = 0; i < length; ++i)                    // initiate sequence
+        ctx.change_indices.clear();
+
+        for (int i = 0; i < length; ++i)                        // initiate sequence
             ctx.seq[i] = (int16_t)(-length + i);
 
-        if (ctx.k2p2) {
-            for (int i = 2; i <= ctx.c_cand; i++)
-                memcpy(&ctx.seq[length - i * ctx.p_cand], &ctx.seq[length - ctx.p_cand], ctx.p_cand * sizeof(int16_t));
-            ctx.seq.push_back(ctx.c_cand);
-            ctx.periods.push_back(ctx.p_cand);
-            ctx.c_cand = ctx.c_cand2;
-            ctx.p_cand = ctx.p_cand2;
+        if (ctx.depth > 1) {                                    // if we use depth 2, we add the first candidates and change the sequence accordingly
+            for (int i = 2; i <= new_values[1]; i++)
+                memcpy(&ctx.seq[length - i * new_values[2]], &ctx.seq[length - new_values[2]], new_values[2] * sizeof(int16_t));
+            ctx.seq.push_back(new_values[1]);
+            ctx.periods.push_back(new_values[2]);
+            ctx.change_indices.insert(0);
         }
 
-        for (int j = 0; j < length + ctx.k2p2; ++j)
+        for (auto& v : ctx.seq_map)                             // clear the map
+            v.clear();
+
+        for (int j = 0; j < length + bool(ctx.depth - 1); ++j)             // and reconstruct
             ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
-        backtracking_step(ctx);                             // perform backtracking for this combination (g_k1, g_p1)
-        while (ctx.periods.size() > ctx.k2p2)
+        bool next = false;
+        for (int i = 3; i <= ctx.depth; i++) {                                  // if we use depth 3 or more, try to add the candidates after performing test_1 and test_2 for validity
+            ctx.c_cand = new_values[i * 2 - 3];
+            ctx.p_cand = new_values[i * 2 - 2];
+            if (test_1(ctx) && test_2(ctx)) {
+                for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
+                    for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
+                        ctx.seq_map[ctx.pairs[i] + length].push_back(x);    // so we move all changed values to their new location
+                    ctx.seq_map[ctx.pairs[i + 1] + length].clear();         // and delete their previous entries
+                }
+                ctx.seq.swap(ctx.seq_new);                                  // retrieve the new sequence from test_2
+                ctx.seq.push_back((int16_t)ctx.c_cand);                     // add the candidates because we passed test_1 and test_2
+                ctx.periods.push_back((int16_t)ctx.p_cand);
+                ctx.seq_map[ctx.c_cand + length].push_back(length + 1);
+                ctx.change_indices.insert(i - 2);
+            }
+            else {
+                for (int j = 0; j <= i - 3; j++) {
+                    ctx.seq.pop_back();
+                    ctx.periods.pop_back();
+                }
+                next = true;
+                break;
+            }
+        }
+        if (next)
+            continue;
+        ctx.c_cand = new_values[ctx.depth * 2 - 1];         // select relevant candidates
+        ctx.p_cand = new_values[ctx.depth * 2];
+
+        backtracking_step(ctx);                                 // perform backtracking for this combination (c_cand, p_cand)
+        while (ctx.periods.size() >= ctx.depth)
             backtracking_step(ctx);
 
-        if (ctx.k2p2) {
+        for (int i = 1; i < ctx.depth; i++) {                                         // clear the depth 2 and 3 candidates, if necessary
             ctx.seq.pop_back();
             ctx.periods.pop_back();
         }
+        memcpy(&last_values, new_values, sizeof(new_values));
     }
     auto t2 = high_resolution_clock::now();
     {
@@ -359,22 +417,20 @@ void backtracking() {
     }
 }
 
-void multi_threader() {
-    std::vector<std::thread> thread_vector;
-    if (length <= 80)
-        thread_vector.emplace_back(std::thread(backtracking));
-    else
-        for (int i = 0; i < thread_count; ++i)
-            thread_vector.emplace_back(std::thread(backtracking));
-    for (auto& th : thread_vector)
-        th.join();
-}
-
 int main()
 {
     FILE_OPEN;
-    multi_threader();
+    std::cout << "Started length: " << length << std::endl;
+    std::cout << "Thread count: " << thread_count << std::endl;
 
+    // Start the calculations
+    std::vector<std::thread> thread_vector;
+    for (int i = 0; i < thread_count; ++i)
+        thread_vector.emplace_back(std::thread(backtracking));
+    for (auto& th : thread_vector)
+        th.join();
+
+    // Log the results
     int record = 0;
     for (int i = 0; i <= length; ++i) {
         if (g_max_tails[i] > record) {
