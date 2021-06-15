@@ -20,14 +20,15 @@ Record values:
 
 Inspiration: http://neilsloane.com/doc/CNC.pdf
 
-Disproval of P3: &Omega;(*115*) = 215
-
+Disproval of P3: &Omega;(*115*) = 215  
 Disproval of P4: &Omega;(*73*) = 133
 
-GCC compile instructions for Sequences-negative.cpp:
-`g++ -std=c++11 -march=native -fno-strict-aliasing -pthread -O3 Sequences-negative.cpp`
+GCC compile instructions for Sequences-negative.cpp (making use of PGO):  
+First compile: `g++ -Ofast -march=native -fprofile-generate -pthread Sequences-negative.cpp -o final.out`  
+Second compile: `g++ -Ofast -march=native -fprofile-use -fprofile-correction -flto -pthread Sequences-negative.cpp -o final.out`  
 
-MPICXX compile instructions for MPI-Sequences.cpp:
-`mpicxx -std=c++11 -march=native -fno-strict-aliasing -O3 MPI-Sequences -o final.out`
+MPICXX compile instructions for MPI_Sequences.cpp (making use of PGO):  
+First compile: `mpicxx -Ofast -march=native -fprofile-generate MPI_Sequences.cpp -o final.out`  
+Second compile: `mpicxx -Ofast -march=native -fprofile-use -fprofile-correction -flto MPI_Sequences.cpp -o final.out`
 
 Made by: Steven Boonstoppel, Vladimir Feinstein and Levi van de Pol
