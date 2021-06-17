@@ -282,7 +282,7 @@ int main(int argc, char *argv[])
         }
         int depth = max_depth;
         
-        while (values[1] <= length) {
+        while (true) {
             if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
                 int id = 0;
                 MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
                 values[depth * 2 - 1]++;                                            // and increase curl by one
                 if (values[depth * 2 - 1] >= length + depth) {                      // curl too large for sequence size?
                     if (depth == 1)
-                        continue;                                                   // if depth is already one, this will be the end of the program
+                        break;                                                      // if depth is already one, this will be the end of the program
                     else
                         values[(depth - 1) * 2]++;                                  // otherwise, increase period of previous depth with one
                 }
@@ -312,6 +312,47 @@ int main(int argc, char *argv[])
                     values[depth * 2]++;                                            // and increase the period of previous depth with one
                 }
                 values[0] = depth;                                                  // store the current depth
+            }
+        }
+        
+        while (true) {
+            if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
+                int id = 0;
+                MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);        // get notified of finished rank
+                MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 0, MPI_COMM_WORLD);                // send it new values (instead of std::cout)
+                values[depth * 2]++;                                                // increase period by one
+            }
+            else {
+                values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
+                values[depth * 2 - 1]++;                                            // and increase curl by one
+                if (values[depth * 2 - 1] >= length + depth) {                      // curl too large for sequence size?
+                    if (depth == 1)
+                        break;                                                      // if depth is already one, this will be the end of the program
+                    depth--;
+                    values[depth * 2 + 1] = 2;                                      // then we need to reset the values of that depth
+                    values[depth * 2 + 2] = 1;
+                    values[depth * 2]++;                                            // and increase the period of previous depth with one
+                    int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
+                    for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
+                        int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+                        if (sum + next > limit) {
+                            break;                                                      // if we go over the limit, we do not do this combination
+                        }
+                        sum += next;                                                    // otherwise, we accept this depth
+                    }
+                    values[0] = depth;                                                  // store the current depth
+                }
+                if (depth == 1) {
+                    int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
+                    for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
+                        int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+                        if (sum + next > limit) {
+                            break;                                                      // if we go over the limit, we do not do this combination
+                        }
+                        sum += next;                                                    // otherwise, we accept this depth
+                    }
+                    values[0] = depth;                                                  // store the current depth
+                }
             }
         }
         
