@@ -6,4 +6,13 @@ cd Curling-sequences-dev
 git pull
 sed -i "25d" MPI_Sequences.cpp
 sed -i "24 a const int length = $1;" MPI_Sequences.cpp
-mpicxx -march=native -std=c++11 -fno-strict-aliasing -O3 MPI_Sequences.cpp -o final.out
+if [ "$2" = "1" ]
+then
+  if [[ -e MPI_Sequences.gcda ]]
+  then
+    rm MPI_Sequences.gcda
+  fi
+  mpicxx -Ofast -march=native -fprofile-generate MPI_Sequences.cpp -o final.out
+else
+  mpicxx -Ofast -march=native -fprofile-use -fprofile-correction -flto MPI_Sequences.cpp -o final.out
+fi
