@@ -259,21 +259,18 @@ void backtracking_step(context& ctx) {
 
 int main(int argc, char *argv[])
 {
+    int rank, np;
     MPI_Init (&argc, &argv);
-    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank number of this process
-	
+    MPI_Comm_size(MPI_COMM_WORLD, &np);     // get total number of processes
+    
     if (rank == 0) { // master rank
-        
         double t1_master = MPI_Wtime();
         FILE_OPEN;
         OUTPUT << "Length: " << length << std::endl;
         std::cout << "Hello from the master\nDistributing sequences...\n2";
         
-        int np;
-        MPI_Comm_size(MPI_COMM_WORLD, &np); // get total number of processes
-        
-        int values[1 + 2 * max_depth];
+        int values[1 + 2 * max_depth], last_values[1 + 2 * max_depth];
         values[0] = max_depth;
         for (int i = 1; i <= max_depth; i++) {
             values[2 * i - 1] = 2;
@@ -317,35 +314,30 @@ int main(int argc, char *argv[])
         std::cout << "\b\b" << "  " << "\nGathering data";
         // clean up all processes one by one
         values[0] = 0;
-        int last_values[1 + 2 * max_depth];
-        double elapsed;
-        int max_tails[length + 1] = { 0 };
-        int g_max_tails[length + 1] = { 0 };
-        int16_t best_generators[length + 1][length];
-        int16_t g_best_generators[length + 1][length];
+        int id = 0;
+        int max_tails[length + 1] = { 0 }, g_max_tails[length + 1] = { 0 };
+        int16_t best_generators[length + 1][length], g_best_generators[length + 1][length];
         for (int i = 1; i < np; i++) {
-            int id = 0;
-            MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);         // get notified that this rank finished
-            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 0, MPI_COMM_WORLD);                 // send it terminating values
-            MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            OUTPUT << "Rank: " << id << ", duration: " << (MPI_Wtime() - t1_master);                 // log data
-            for (int x : last_values)
-                OUTPUT << " " << x;
-            OUTPUT << std::endl;
-            MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive its maximum tails
+            MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                            // get notified that a rank has finished
+            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 0, MPI_COMM_WORLD);                                    // send it terminating values
+            MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // receive its last values for logging
+            MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // receive its maximum tails
             MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            for (int j = 0; j <= length; ++j)                                                        // update global tails
-                if (max_tails[j] > g_max_tails[j]) {
-                    g_max_tails[j] = max_tails[j];
-                    memcpy(&g_best_generators[j][0], &best_generators[j][0], sizeof(int16_t) * length);
+            OUTPUT << "\nRank: " << id << ", duration: " << (MPI_Wtime() - t1_master) << ", " << values[0] << ":  ";    // log rank number, duration and last values
+            for (int j = 1; j < values[0]; j++) OUTPUT << "(" << values[i * 2 - 1] << ", " << values[i * 2] << "), ";
+            for (int k = 0; k <= length; k++)                                                                           // update global tails
+                if (max_tails[k] > g_max_tails[k]) {
+                    g_max_tails[k] = max_tails[k];
+                    memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
                 }
             std::cout << ".";
         }
         std::cout << std::endl;
+        OUTPUT << std::endl;
         
         // process the tails
         int record = 0;
-        for (int i = 0; i <= length; ++i) {
+        for (int i = 0; i <= length; ++i)
             if (g_max_tails[i] > record) {
                 record = g_max_tails[i];
                 if (expected_tails.find(i) == expected_tails.end())
@@ -358,13 +350,8 @@ int main(int argc, char *argv[])
                         OUTPUT << x << ",";
                 OUTPUT << "]" << std::endl;
             }
-        }
-        std::cout << "Finished!" << std::endl;
         FILE_CLOSE;
-        double t2_master = MPI_Wtime();
-        elapsed = t2_master - t1_master;
-        std::cout << "Took " << elapsed << " seconds." << std::endl;
-        std::cout << "Quitting the program..." << std::endl;
+        std::cout << "Finished!" << "Took " << (MPI_Wtime() - t1_master) << " seconds." << std::endl;
 	}
 	
 	else { // worker ranks
