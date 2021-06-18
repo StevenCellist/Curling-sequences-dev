@@ -50,7 +50,7 @@ v16_t g_max_tails(length + 1, 0);
 std::vector<v16_t> g_best_generators(length + 1);
 std::mutex m_tails, m_cp;
 
-int values[11] = { 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1 };
+int values[1 + 2 * max_depth] = { 0 };
 
 std::unordered_map<int, int> expected_tails = {
     {2, 2},     {4, 4},     {6, 8},     {8, 58},    {9, 59},     {10, 60},    {11, 112},   {14, 118},   {19, 119},   {22, 120},
@@ -281,28 +281,7 @@ void backtracking() {
         ctx.best_generators.push_back({});
     }
     auto t1 = high_resolution_clock::now();
-    int new_values[11];
-    int last_values[11];
-    {
-        std::lock_guard<std::mutex> l(m_cp);
-        int depth = values[0];
-        // do initial values to get us started
-        int sum = values[1] * values[2];
-        for (depth = 1; depth < 5; depth++) {
-            int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
-            if (sum + next > limit) {
-                break;
-            }
-            sum += next;
-        }
-        if (depth < values[0]) {
-            for (int i = 1; i <= values[0] - depth; i++) {
-                values[(depth + i) * 2 - 1] = 2;
-                values[(depth + i) * 2] = 1;
-            }
-        }
-        values[0] = depth;
-    }
+    int new_values[1 + 2 * max_depth] = { 0 }, last_values[1 + 2 * max_depth] = { 0 };
     
     while (true) {
         {
@@ -315,61 +294,60 @@ void backtracking() {
             else {
                 values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
                 values[depth * 2 - 1]++;                                            // and increase curl by one
-                if (values[depth * 2 - 1] >= length + depth) {                      // curl too large for sequence size?
-                    if (depth == 1)
-                        break;                                                      // if depth is already one, this will be the end of the program
-                    else
-                        values[(depth - 1) * 2]++;                                  // otherwise, increase period of previous depth with one
+                if (depth > 1) {
+                    if (values[depth * 2 - 1] > values[depth * 2 - 3] + 1) {        // curl larger than previous curl + 1? skip to next (mathematical)   
+                        values[depth * 2 - 1] = 2;                                  // reset the curl of the current depth
+                        values[depth * 2 - 2]++;                                    // and increase the period of previous depth with one
+                        if (depth == 2) std::cout << " " << values[2];
+                    }
+                }
+                else {
+                    if (values[1] > length)                                         // curl too large for sequence size?
+                        break;                                                      // then we just gave out the last set of values
+                    if (values[1] <= limit) std::cout << "\b\b" << "  " << std::endl << values[1];
                 }
                 int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
-                for (depth = 1; depth < 5; depth++) {                               // check the (weighed) depth that matches current values
-                    int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
-                    if (sum + next > limit) {
+                for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
+                    if (sum > limit)
                         break;                                                      // if we go over the limit, we do not do this combination
-                    }
+                    int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
                     sum += next;                                                    // otherwise, we accept this depth
-                }
-                if (depth < values[0]) {                                            // did we decrease in depth?
-                    for (int i = 1; i <= values[0] - depth; i++) {                  // then we need to reset the values of that depth
-                        values[(depth + i) * 2 - 1] = 2;
-                        values[(depth + i) * 2] = 1;
-                        values[(depth + i) * 2 - 2]++;                              // and increase the period of previous depth with one
-                    }
                 }
                 values[0] = depth;                                                  // store the current depth
             }
         }
-        
 
-        if (new_values[0] == 0)                                     // terminate if necessary
+        if (new_values[0] == 0)                                             // terminate if necessary
             break;
-        ctx.depth = new_values[0];
+        memcpy(&last_values, new_values, sizeof(new_values));               // store current values for logging
+        ctx.depth = values[0];                                              // store depth as variable
 
+        ctx.seq.resize(length);                                             // reset to default values
+        ctx.periods.clear();
         ctx.change_indices.clear();
 
-        for (int i = 0; i < length; ++i)                        // initiate sequence
+        for (int i = 0; i < length; ++i)                                    // initiate sequence
             ctx.seq[i] = (int16_t)(-length + i);
 
-        if (ctx.depth > 1) {                                    // if we use depth 2, we add the first candidates and change the sequence accordingly
+        if (ctx.depth > 1) {                                                // if we use depth 2, we add the first candidates and change the sequence accordingly
             for (int i = 2; i <= new_values[1]; i++)
                 memcpy(&ctx.seq[length - i * new_values[2]], &ctx.seq[length - new_values[2]], new_values[2] * sizeof(int16_t));
-            ctx.seq.push_back(new_values[1]);
-            ctx.periods.push_back(new_values[2]);
+            ctx.seq.push_back((int16_t)new_values[1]);
+            ctx.periods.push_back((int16_t)new_values[2]);
             ctx.change_indices.insert(0);
         }
 
-        for (auto& v : ctx.seq_map)                             // clear the map
+        for (auto& v : ctx.seq_map)                                         // clear the map
             v.clear();
-
-        for (int j = 0; j < length + bool(ctx.depth - 1); ++j)             // and reconstruct
+        for (int j = 0; j < length + bool(ctx.depth - 1); ++j)              // and reconstruct
             ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
         bool next = false;
-        for (int i = 3; i <= ctx.depth; i++) {                                  // if we use depth 3 or more, try to add the candidates after performing test_1 and test_2 for validity
+        for (int i = 3; i <= ctx.depth; i++) {                              // if we use depth 3 or more, try to add the candidates after performing test_1 and test_2 for validity
             ctx.c_cand = new_values[i * 2 - 3];
             ctx.p_cand = new_values[i * 2 - 2];
             if (test_1(ctx) && test_2(ctx)) {
-                for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
+                for (int i = 0; i < ctx.pairs.size(); i += 2) {             // now we are sure we passed test_1 and test_2, so it is time to update the map
                     for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
                         ctx.seq_map[ctx.pairs[i] + length].push_back(x);    // so we move all changed values to their new location
                     ctx.seq_map[ctx.pairs[i + 1] + length].clear();         // and delete their previous entries
@@ -381,11 +359,7 @@ void backtracking() {
                 ctx.change_indices.insert(i - 2);
             }
             else {
-                for (int j = 0; j <= i - 3; j++) {
-                    ctx.seq.pop_back();
-                    ctx.periods.pop_back();
-                }
-                next = true;
+                next = true;                                                // if some combination failed, skip and request new variables
                 break;
             }
         }
@@ -394,15 +368,7 @@ void backtracking() {
         ctx.c_cand = new_values[ctx.depth * 2 - 1];         // select relevant candidates
         ctx.p_cand = new_values[ctx.depth * 2];
 
-        backtracking_step(ctx);                                 // perform backtracking for this combination (c_cand, p_cand)
-        while (ctx.periods.size() >= ctx.depth)
-            backtracking_step(ctx);
-
-        for (int i = 1; i < ctx.depth; i++) {                                         // clear the depth 2 and 3 candidates, if necessary
-            ctx.seq.pop_back();
-            ctx.periods.pop_back();
-        }
-        memcpy(&last_values, new_values, sizeof(new_values));
+        do { backtracking_step(ctx); } while (ctx.periods.size() >= ctx.depth);  // perform backtracking for this combination (c_cand, p_cand)
     }
     auto t2 = high_resolution_clock::now();
     {
@@ -422,7 +388,12 @@ int main()
     FILE_OPEN;
     std::cout << "Started length: " << length << std::endl;
     std::cout << "Thread count: " << thread_count << std::endl;
-
+    std::cout << 2;
+    values[0] = max_depth;
+    for (int i = 1; i <= max_depth; i++) {
+        values[i * 2 - 1] = 2;
+        values[i * 2] = 1;
+    }
     // Start the calculations
     std::vector<std::thread> thread_vector;
     for (int i = 0; i < thread_count; ++i)
