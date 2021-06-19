@@ -41,6 +41,7 @@ std::unordered_map<int, int> expected_tails = {             // the record tail l
     {133, 342}, {149, 343}, {154, 356}, {176, 406}, {197, 1668}, {199, 1669}, {200, 1670}, {208, 1708}, {217, 1836}, {290, 3382}
 };
 
+INLINING
 bool diff(const int16_t* p1, const int16_t* p2, int count) {
     int count64 = count / 4;    // compare four 16-bit ints in uint64_t simultaneously
     if (count64) {
@@ -75,6 +76,8 @@ int krul(const v16_t& s, int& period, int l, int minimum) {
             if (diff(p1, p2, i))                            // doesn't match
                 break;
             if (curl < freq) {                              // found better curl?
+                if (freq > s.back() + 1)
+                    return freq;
                 curl = freq;                                // update curl
                 limit = l / (curl + 1);                     // update limit
                 period = i;                                 // update period
@@ -97,7 +100,7 @@ INLINING // modify the candidate(s) and maybe the sequence to try and maximize t
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.depth - 1)                            // stop if tail is empty (relative to depth)
+        if (ctx.periods.size() < ctx.depth)                                 // stop if tail is empty (relative to depth)
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -141,13 +144,15 @@ void up(context& ctx) {
 }
 
 // find the shortest generator that could have generated this tail
+INLINING
 int real_generator_length(context& ctx) {
     int i = 0;
     while ((ctx.seq[i] == (-length + i)) && (++i != length)) {}
     return (length - i);
 }
 
-INLINING // construct the tail for this generator
+// construct the tail for this generator
+INLINING 
 void append(context& ctx) {
     for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
         for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
@@ -324,7 +329,8 @@ int main(int argc, char *argv[])
             MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                     // receive its maximum tails
             MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             OUTPUT << "\nRank: " << id << ", duration: " << (MPI_Wtime() - t1_master) << ", " << values[0] << ":  ";    // log rank number, duration and last values
-            for (int j = 1; j < values[0]; j++) OUTPUT << "(" << values[i * 2 - 1] << ", " << values[i * 2] << "), ";
+            //for (int j = 1; j < values[0]; j++) OUTPUT << "(" << values[i * 2 - 1] << ", " << values[i * 2] << "), ";
+            for (int j : values) OUTPUT << j << " ";
             for (int k = 0; k <= length; k++)                                                                           // update global tails
                 if (max_tails[k] > g_max_tails[k]) {
                     g_max_tails[k] = max_tails[k];
@@ -363,13 +369,15 @@ int main(int argc, char *argv[])
             MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
             if (values[0] == 0)                                                 // terminate if necessary
                 break;
-            memcpy(&last_values, values, sizeof(values));                       // store current values for logging
             ctx.depth = values[0];                                              // store depth as variable
-
-            ctx.seq.resize(length);                                             // reset to default values
-            ctx.periods.clear();
-            ctx.change_indices.clear();
-
+            
+            if (last_values[0] > 1) {
+                ctx.seq.resize(length);                                         // reset to default values
+                ctx.periods.clear();
+                ctx.change_indices.clear();
+            }
+            memcpy(&last_values, values, sizeof(values));                       // store current values for logging
+            
             for (int i = 0; i < length; ++i)                                    // initiate sequence
                 ctx.seq[i] = (int16_t)(-length + i);
 
@@ -409,13 +417,13 @@ int main(int argc, char *argv[])
             }
             if (next)
                 continue;
-            ctx.c_cand = values[ctx.depth * 2 - 1];         // select relevant candidates
+            ctx.c_cand = values[ctx.depth * 2 - 1];                             // select relevant candidates
             ctx.p_cand = values[ctx.depth * 2];
        
-            do { backtracking_step(ctx); } while (ctx.periods.size() >= ctx.depth);  // perform backtracking for this combination (c_cand, p_cand)
+            do { backtracking_step(ctx); } while (ctx.periods.size() >= ctx.depth); // perform backtracking for this combination (c_cand, p_cand)
         }
-        MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 0, 1, MPI_COMM_WORLD);		// send last values for debugging
-        MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);         // send maximum tails in this rank
+        MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 0, 1, MPI_COMM_WORLD);	// send last values for debugging
+        MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);     // send maximum tails in this rank
         MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 0, 3, MPI_COMM_WORLD);
     }   
     MPI_Finalize();
