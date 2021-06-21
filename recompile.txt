@@ -3,6 +3,7 @@ cd mpich-3.4.1
 PATH=/home/mpi/mpich-install/bin:$PATH ; export PATH
 cd
 cd Curling-sequences-dev
+rm MPI_Sequences.cpp
 git pull
 sed -i "25d" MPI_Sequences.cpp
 sed -i "24 a const int length = $1;" MPI_Sequences.cpp
