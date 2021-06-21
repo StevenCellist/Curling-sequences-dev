@@ -8,7 +8,7 @@ sed -i "25d" MPI_Sequences.cpp
 sed -i "24 a const int length = $1;" MPI_Sequences.cpp
 if [ "$2" = "1" ]
 then
-  if [[ -e MPI_Sequences.gcda ]]
+  if [ -e MPI_Sequences.gcda ]
   then
     rm MPI_Sequences.gcda
   fi
