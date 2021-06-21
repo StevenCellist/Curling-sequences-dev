@@ -35,19 +35,19 @@ typedef std::vector<int16_t> v16_t;
 const int length = 100;     // Tweakable parameter: set this to the desired generator length (n)
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
-const int thread_count = 8; // std::thread::hardware_concurrency(); // Tweakable parameter: selects all hardware threads by default
+const int thread_count = std::thread::hardware_concurrency(); // Tweakable parameter: selects all hardware threads by default
 
-struct context {
-    int c_cand = 0, p_cand = 0, depth = 1;
-    v16_t seq = v16_t(length), seq_new, periods, max_tails, pairs, temp;
-    std::vector<v16_t> best_generators;
+struct context {                                            // all necessary variables for a rank;
+    int c_cand = 0, p_cand = 0, depth = 1, max_tails[length + 1] = { 0 };
+    v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
+    int16_t best_generators[length + 1][length] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
     std::unordered_set<int16_t> change_indices = { 0 };
-    std::array<std::vector<int>, 2 * length + 2> seq_map; // adjust for + 1 index on positive and negative side
+    std::array<std::vector<int>, 2 * length + 2> seq_map;   // adjust for + 1 index on positive and negative side
 };
 
-v16_t g_max_tails(length + 1, 0);
-std::vector<v16_t> g_best_generators(length + 1);
+int g_max_tails[length + 1] = { 0 };
+int16_t g_best_generators[length + 1][length] = { 0 };
 std::mutex m_tails, m_cp;
 
 int values[1 + 2 * max_depth] = { 0 };
@@ -112,7 +112,7 @@ INLINING
 void up(context& ctx) {
     ++ctx.p_cand;                                                           // try period one larger now
     while (true) {
-        if (ctx.periods.size() == ctx.depth - 1)                            // stop if tail is empty
+        if (ctx.periods.size() < ctx.depth)                                 // stop if tail is empty
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
@@ -193,12 +193,11 @@ void append(context& ctx) {
     int len = real_generator_length(ctx);                       // retrieve actual generator length
     if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
         ctx.max_tails[len] = (int16_t)tail;
-        ctx.best_generators[len] = v16_t(ctx.seq.begin() + length - len, ctx.seq.begin() + length);
+        memcpy(&ctx.best_generators[len][0], &ctx.seq[length - len], sizeof(int16_t) * len);
     }
 }
 
-// this function checks whether the current sequence allows for the candidates to be added
-INLINING
+INLINING // this function checks whether the current sequence allows for the candidates to be added
 bool test_1(context& ctx) {
     int l = (int)ctx.seq.size() - 1;                            // last element of pattern to check
     int lcp = l - ctx.p_cand;                                   // last element of potential pattern
@@ -226,11 +225,11 @@ bool test_1(context& ctx) {
                 std::swap(a, b);                                // a is now always < b and < 0
             ctx.pairs.push_back(b);                             // add (b, a) combo to the pairs
             ctx.pairs.push_back(a);
-            ++pairs_size;
-            ++pairs_size;
+            pairs_size += 2;
+            
             int16_t* p_begin = &ctx.pairs[0];
             int16_t* p_end = p_begin + pairs_size;
-
+            
             ctx.temp.clear();
             ctx.temp.push_back(a);                              // temporary vector that will hold all map values that need to be changed
             int temp_size = 1;
@@ -251,8 +250,7 @@ bool test_1(context& ctx) {
     return true;
 }
 
-// this function checks whether the proposed change invalidates the generator (regarding curl or period)
-INLINING
+INLINING // this function checks whether the proposed change invalidates the generator (regarding curl or period)
 bool test_2(context& ctx) {
     int l = (int)ctx.seq_new.size();
     int period = 0;
@@ -276,13 +274,8 @@ void backtracking_step(context& ctx) {
 
 void backtracking() {
     context ctx;
-    for (int i = 0; i <= length; ++i) {                  // initiate thread-local record vectors
-        ctx.max_tails.push_back(0);
-        ctx.best_generators.push_back({});
-    }
     auto t1 = high_resolution_clock::now();
     int new_values[1 + 2 * max_depth] = { 0 }, last_values[1 + 2 * max_depth] = { 0 };
-    
     while (true) {
         {
             std::lock_guard<std::mutex> l(m_cp);
@@ -319,12 +312,14 @@ void backtracking() {
 
         if (new_values[0] == 0)                                             // terminate if necessary
             break;
-        memcpy(&last_values, new_values, sizeof(new_values));               // store current values for logging
-        ctx.depth = values[0];                                              // store depth as variable
+        ctx.depth = new_values[0];                                          // store depth as variable
 
-        ctx.seq.resize(length);                                             // reset to default values
-        ctx.periods.clear();
-        ctx.change_indices.clear();
+        if (last_values[0] > 1) {
+            ctx.seq.resize(length);                                         // reset to default values
+            ctx.periods.clear();
+            ctx.change_indices.clear();
+        }
+        memcpy(&last_values, new_values, sizeof(new_values));               // store current values for logging
 
         for (int i = 0; i < length; ++i)                                    // initiate sequence
             ctx.seq[i] = (int16_t)(-length + i);
@@ -365,10 +360,11 @@ void backtracking() {
         }
         if (next)
             continue;
-        ctx.c_cand = new_values[ctx.depth * 2 - 1];         // select relevant candidates
+        ctx.c_cand = new_values[ctx.depth * 2 - 1];                         // select relevant candidates
         ctx.p_cand = new_values[ctx.depth * 2];
 
-        do { backtracking_step(ctx); } while (ctx.periods.size() >= ctx.depth);  // perform backtracking for this combination (c_cand, p_cand)
+        do backtracking_step(ctx);
+        while (ctx.periods.size() >= ctx.depth);                            // perform backtracking for this combination (c_cand, p_cand)
     }
     auto t2 = high_resolution_clock::now();
     {
@@ -376,7 +372,7 @@ void backtracking() {
         for (int i = 0; i <= length; ++i) {
             if (ctx.max_tails[i] > g_max_tails[i]) {
                 g_max_tails[i] = ctx.max_tails[i];
-                g_best_generators[i] = ctx.best_generators[i];
+                memcpy(&g_best_generators[i][0], &ctx.best_generators[i][0], sizeof(int16_t) * length);
             }
         }
         OUTPUT << "Finished: " << length << ", " << "duration: " << duration_cast<milliseconds>(t2 - t1).count() << " msec" << std::endl;
@@ -391,8 +387,8 @@ int main()
     std::cout << 2;
     values[0] = max_depth;
     for (int i = 1; i <= max_depth; i++) {
-        values[i * 2 - 1] = 2;
-        values[i * 2] = 1;
+        values[2 * i - 1] = 2;
+        values[2 * i] = 1;
     }
     // Start the calculations
     std::vector<std::thread> thread_vector;
@@ -403,7 +399,7 @@ int main()
 
     // Log the results
     int record = 0;
-    for (int i = 0; i <= length; ++i) {
+    for (int i = 0; i <= length; ++i)
         if (g_max_tails[i] > record) {
             record = g_max_tails[i];
             if (expected_tails.find(i) == expected_tails.end())
@@ -412,9 +408,9 @@ int main()
                 OUTPUT << "WRONG:" << std::endl;
             OUTPUT << i << ": " << record << ", [";
             for (int x : g_best_generators[i])
-                OUTPUT << x << ",";
+                if (x != 0)
+                    OUTPUT << x << ",";
             OUTPUT << "]" << std::endl;
         }
-    }
     FILE_CLOSE;
 }
