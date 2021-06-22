@@ -1,7 +1,7 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 14-06-2021; estimated time to length 48: 100 milliseconds*
-// * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, Microsoft VS Studio 2019 Compiler
+// Current version: 21-06-2021; completed time to length 48: 50 milliseconds*
+// * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, GCC GNU compiler
 
 #include <iostream>
 #include <fstream>
@@ -412,7 +412,7 @@ int main(int argc, char *argv[])
             ctx.p_cand = values[ctx.depth * 2];
 
             do backtracking_step(ctx); 
-            while (ctx.periods.size() >= ctx.depth);                        // perform backtracking for this combination (c_cand, p_cand)
+            while (ctx.periods.size() >= ctx.depth);                            // perform backtracking for this combination (c_cand, p_cand)
         }
         MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 0, 1, MPI_COMM_WORLD);		                // send last values for debugging
         MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 0, 2, MPI_COMM_WORLD);                         // send maximum tails in this rank
