@@ -4,9 +4,14 @@ PATH=/home/mpi/mpich-install/bin:$PATH ; export PATH
 cd
 cd Curling-sequences-dev
 git checkout .
+git pull
 sed -i "25d" MPI_Sequences.cpp
 sed -i "24 a const int length = $1;" MPI_Sequences.cpp
-if [ "$2" = "1" ]
+sed -i "26d" MPI_Sequences.cpp
+sed -i "25 a const int limit = $2;" MPI_Sequences.cpp
+sed -i "27d" MPI_Sequences.cpp
+sed -i "25 a const int max_depth = $3;" MPI_Sequences.cpp
+if [ "$4" = "1" ]
 then
   if [ -e MPI_Sequences.gcda ]
   then
