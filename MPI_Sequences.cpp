@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 30-06-2021; completed time to length 48: 50 milliseconds*
+// Current version: 01-07-2021; completed time to length 48: 50 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, GCC GNU compiler
 
 #include <iostream>
@@ -256,9 +256,9 @@ void backtracking_step(context& ctx) {
 
 void master(const int rank, const int np) {
     double t1 = MPI_Wtime();
-    std::cout << "Hello from the master\nDistributing sequences...\n2";
+    std::cout << "Master: distributing sequences...\n2";
     
-    int values[1 + 2 * max_depth];
+    int id, values[1 + 2 * max_depth];
     values[0] = max_depth;
     for (int i = 1; i <= max_depth; i++) {
         values[2 * i - 1] = 2;
@@ -267,9 +267,9 @@ void master(const int rank, const int np) {
     int depth = max_depth;
     while (true) {
         if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
-            int id = 0;
             MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified of finished rank
             MPI_Send(&id, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);
+            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, 1, 2, MPI_COMM_WORLD);
             MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);            // send it new values
             values[depth * 2]++;                                                // increase period by one
         }
@@ -280,13 +280,15 @@ void master(const int rank, const int np) {
                 if (values[depth * 2 - 1] > values[depth * 2 - 3] + 1) {        // curl larger than previous curl + 1? skip to next (mathematical)   
                     values[depth * 2 - 1] = 2;                                  // reset the curl of the current depth
                     values[depth * 2 - 2]++;                                    // and increase the period of previous depth with one
-                    if (depth == 2) std::cout << " " << values[2];
+                    if (depth == 2) 
+                        std::cout << " " << values[2];
                 }
             }
             else {
                 if (values[1] > length)                                         // curl too large for sequence size?
                     break;                                                      // then we just gave out the last set of values
-                if (values[1] <= limit) std::cout << "\b\b" << "  " << std::endl << values[1];
+                if (values[1] <= limit) 
+                    std::cout << "\b\b" << "  " << std::endl << values[1];
             }
             int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
             for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
@@ -298,58 +300,33 @@ void master(const int rank, const int np) {
             values[0] = depth;                                                  // store the current depth
         }
     }
-    // clean up all processes one by one
-    std::cout << "\b\b" << "  " << "\nTerminating loggers and workers..." << std::endl;
-    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);
+    std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers." << std::endl;
     values[0] = 0;
-    int id = 0;
     for (int i = 3; i < np; i++) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a rank has finished
         MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);                                        // send it terminating values
     }
-    //MPI_Send(&rank, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
-    std::cout << "Master finished! Took " << (MPI_Wtime() - t1) << " seconds." << std::endl;
+    MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);
+    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);
+    MPI_Recv(&id, 1, MPI_INT, 1, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(&id, 1, MPI_INT, 2, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    std::cout << MPI_Wtime() - t1 << " seconds.\n";
+    std::cout << "Master: finished.\n";
 }
 
 void value_logger(const int rank, const int np) {
-    int cycles = 0;
-    int log[8][1 + 2 * max_depth];
-    int values[1 + 2 * max_depth];
-    values[0] = max_depth;
-    for (int i = 1; i <= max_depth; i++) {
-        values[2 * i - 1] = 2;
-        values[2 * i] = 1;
-    }
-    int depth = max_depth;
+    int cycles = interval;
+    int id, log[8][1 + 2 * max_depth], values[1 + 2 * max_depth];
     while (true) {
-        if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
-            int id = 0;
-            MPI_Recv(&id, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // get notified of finished rank
-            memcpy(&log[id][0], &values[0], sizeof(values));					// store values into log
-            values[depth * 2]++;                                                // increase period by one
-            cycles++;
-        }
-        else if (values[1] <= length) {
-            values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
-            values[depth * 2 - 1]++;                                            // and increase curl by one
-            if (depth > 1)
-                if (values[depth * 2 - 1] > values[depth * 2 - 3] + 1) {        // curl larger than previous curl + 1? skip to next (mathematical)   
-                    values[depth * 2 - 1] = 2;                                  // reset the curl of the current depth
-                    values[depth * 2 - 2]++;                                    // and increase the period of previous depth with one
-                }
-            int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
-            for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
-                if (sum > limit)
-                    break;                                                      // if we go over the limit, we do not do this combination
-                int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
-                sum += next;                                                    // otherwise, we accept this depth
-            }
-            values[0] = depth;                                                  // store the current depth
-        }
-        else
+        MPI_Recv(&id, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // get notified of finished rank
+        if (id == 0)
             break;
-        if (cycles % interval == 0) {
+        MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        memcpy(&log[id][0], &values[0], sizeof(values));					// store values into log
+        cycles--;
+        if (cycles == 0) {
             log_file.open("Log.txt");
+            log_file << "Length: " << length << std::endl;
             for (int i = 3; i < np; i++) {
                 log_file << i << ", depth: " << log[i][0] << " = ";
                 for (int j = 1; j <= log[i][0]; j++)
@@ -357,16 +334,36 @@ void value_logger(const int rank, const int np) {
                 log_file << std::endl;
             }
             log_file.close();
+            cycles = interval;
         }
     }
-    std::cout << "Value logger exited." << std::endl;
-    //MPI_Recv(&depth, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);
+    std::cout << "Value logger: finished.\n";
+}
+
+void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[length + 1][length]) {
+    results_file.open("Sequences.txt");
+    results_file << "Length: " << length << std::endl;
+    int record = 0;
+    for (int i = 0; i <= length; ++i)
+        if (g_max_tails[i] > record) {
+            record = g_max_tails[i];
+            if (expected_tails.find(i) == expected_tails.end())
+                results_file << "NEW:" << std::endl;
+            else if (expected_tails[i] != record)
+                results_file << "WRONG:" << std::endl;
+            results_file << i << ": " << record << ", [";
+            for (int x : g_best_generators[i])
+                if (x != 0) 
+                    results_file << x << ",";
+            results_file << "]" << std::endl;
+        }
+    results_file.close();
 }
 
 void results_logger(const int rank, const int np) {
     double t1 = MPI_Wtime();
     
-    // gather all data
     int id = 0;
     int last_values[1 * 2 * max_depth], max_tails[length + 1] = { 0 }, g_max_tails[length + 1] = { 0 };
     int16_t best_generators[length + 1][length], g_best_generators[length + 1][length];
@@ -382,24 +379,7 @@ void results_logger(const int rank, const int np) {
                 g_max_tails[k] = max_tails[k];
                 memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
             }
-        
-        results_file.open("Sequences.txt");
-        results_file << "Length: " << length << std::endl;
-        int record = 0;
-        for (int i = 0; i <= length; ++i)
-            if (g_max_tails[i] > record) {
-                record = g_max_tails[i];
-                if (expected_tails.find(i) == expected_tails.end())
-                    results_file << "NEW:" << std::endl;
-                else if (expected_tails[i] != record)
-                    results_file << "WRONG:" << std::endl;
-                results_file << i << ": " << record << ", [";
-                for (int x : g_best_generators[i])
-                    if (x != 0) 
-                        results_file << x << ",";
-                results_file << "]" << std::endl;
-            }
-        results_file.close();
+        write_results(g_max_tails, g_best_generators);
     }
     
     ranks_file.open("Ranks.txt");
@@ -408,6 +388,11 @@ void results_logger(const int rank, const int np) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a rank has finished
         MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive its maximum tails
         MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        for (int k = 0; k <= length; k++)                                                                               // update global tails
+            if (max_tails[k] > g_max_tails[k]) {
+                g_max_tails[k] = max_tails[k];
+                memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
+            }
         MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                // receive its last values for logging
         ranks_file << "Rank: " << id << ", duration: " << (MPI_Wtime() - t1) << ", " << last_values[0] << ": ";      // log rank number, duration and last values
         for (int j = 1; j <= last_values[0]; j++) 
@@ -416,19 +401,20 @@ void results_logger(const int rank, const int np) {
         std::cout << "*";
     }
     ranks_file.close();
-    std::cout << "Results logger has finished!" << std::endl;
+    write_results(g_max_tails, g_best_generators);
+    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);
+    std::cout << "\nResults logger: finished.\n";
 }
 
 void worker(const int rank, const int np) {
     context ctx;
-    int cycles = 0;
+    int cycles = interval;
     int values[1 + 2 * max_depth], last_values[1 + 2 * max_depth];
     while (true) {
         MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);                  // advertise that this rank is ready for a new combination
         MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // get new values
         if (values[0] == 0)                                                 // terminate if necessary
             break;
-        cycles++;
         ctx.depth = values[0];                                              // store depth as variable
 
         if (last_values[0] > 1) {
@@ -483,10 +469,12 @@ void worker(const int rank, const int np) {
         do backtracking_step(ctx); 
         while (ctx.periods.size() >= ctx.depth);                            // perform backtracking for this combination (c_cand, p_cand)
         
-        if (cycles % interval == 0) {
+        cycles--;
+        if (cycles == 0) {
             MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);		                                        // send rank number
             MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 4, MPI_COMM_WORLD);                         // send maximum tails in this rank
             MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 5, MPI_COMM_WORLD); // send best generators in this rank
+            cycles = interval;
         }
     }
     MPI_Send(&rank, 1, MPI_INT, 2, 6, MPI_COMM_WORLD);		                                        // send rank number
