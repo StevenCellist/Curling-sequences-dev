@@ -28,9 +28,10 @@ struct context {                                            // all necessary var
     int c_cand = 0, p_cand = 0, depth = 1, max_tails[length + 1] = { 0 };
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
     int16_t best_generators[length + 1][length] = { 0 };
+    int generators_counter[length + 1] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
     v16_t change_indices = { 0 };
-    std::array<std::vector<int>, length> seq_map;       // adjust for + 1 index on positive and negative side
+    std::array<std::vector<int>, length> seq_map;
 };
 
 std::unordered_map<int, int> expected_tails = {             // the record tail lengths we found so far
@@ -166,12 +167,15 @@ void append(context& ctx) {
     int tail = (int)ctx.periods.size();                         // find tail size (seq.size() - length)
     ctx.c_cand = 2;                                             // prepare candidates for next backtracking_step
     ctx.p_cand = 1 + tail / 2;
-    ctx.change_indices.push_back((int16_t)tail);                   // to improve generator, we would have to take note of the index where the 1 occured
+    ctx.change_indices.push_back((int16_t)tail);                // to improve generator, we would have to take note of the index where the 1 occured
     int len = real_generator_length(ctx);                       // retrieve actual generator length
     if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
+        ctx.generators_counter[len] = 1;                        // (re)set counter for this record
         ctx.max_tails[len] = (int16_t)tail;
         memcpy(&ctx.best_generators[len][0], &ctx.seq[length - len], sizeof(int16_t) * len);
     }
+    else if (ctx.max_tails[len] == (int16_t)tail)
+        ctx.generators_counter[len]++;                          // increase counter for this record
 }
 
 INLINING // check whether the current sequence allows for the candidates to be added
@@ -249,7 +253,7 @@ void master(const int rank, const int np) {
     double t1 = MPI_Wtime();
     std::cout << "Master: distributing sequences...\n2";
     
-    int id, values[1 + 2 * max_depth];                                          // initiate with default values
+    int id, values[1 + 2 * max_depth];                                              // initiate with default values
     values[0] = max_depth;
     for (int i = 1; i <= max_depth; i++) {
         values[2 * i - 1] = 2;
@@ -299,8 +303,8 @@ void master(const int rank, const int np) {
     }
     MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);                              // terminate value logger
     MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);                              // initiate final results logging and terminate logger
-    MPI_Recv(&id, 1, MPI_INT, 1, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for value logger termination
-    MPI_Recv(&id, 1, MPI_INT, 2, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for results logger termination
+    MPI_Recv(&id, 1, MPI_INT, 1, 11, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for value logger termination
+    MPI_Recv(&id, 1, MPI_INT, 2, 11, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for results logger termination
     std::cout << MPI_Wtime() - t1 << " seconds.\n";
     std::cout << "Master: finished.\n";                                             // terminate master
 }
@@ -329,7 +333,7 @@ void value_logger(const int rank, const int np) {
             cycles = interval;
         }
     }
-    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);     // report termination to master
+    MPI_Send(&rank, 1, MPI_INT, 0, 11, MPI_COMM_WORLD);     // report termination to master
     std::cout << "Value logger: finished.\n";               // terminate logger
 }
 
@@ -358,7 +362,7 @@ void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[
 void results_logger(const int rank, const int np) {
     double t1 = MPI_Wtime();
     int id = 0;
-    int last_values[1 * 2 * max_depth], max_tails[length + 1] = { 0 }, g_max_tails[length + 1] = { 0 };
+    int last_values[1 * 2 * max_depth], max_tails[length + 1] = { 0 }, g_max_tails[length + 1] = { 0 }, generators_counter[length + 1] = { 0 }, g_generators_counter[length + 1] = { 0 };
     int16_t best_generators[length + 1][length], g_best_generators[length + 1][length];
     while (true) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // receive ID from worker
@@ -381,21 +385,33 @@ void results_logger(const int rank, const int np) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a worker is terminating
         MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive its maximum tails
         MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // as well as corresponding generators
-        for (int k = 0; k <= length; k++)                                                                               // update current best tails
+        MPI_Recv(&generators_counter[0], length + 1, MPI_INT, id, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                // and counters for the generators
+        for (int k = 0; k <= length; k++) {                                                                             // update current best tails
             if (max_tails[k] > g_max_tails[k]) {
+                g_generators_counter[k] = generators_counter[k];
                 g_max_tails[k] = max_tails[k];
                 memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
             }
-        MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                // receive its last values for logging
+            else if (max_tails[k] == g_max_tails[k])
+                g_generators_counter[k] += generators_counter[k];                                                       // increase counter if we found non-unique generators
+        }
+        MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);               // receive its last values for logging
         ranks_file << "Rank: " << id << ", duration: " << (MPI_Wtime() - t1) << ", " << last_values[0] << ": ";         // log worker number, duration and last values
         for (int j = 1; j <= last_values[0]; j++) 
             ranks_file << "(" << last_values[j * 2 - 1] << ", " << last_values[j * 2] << "), ";
         ranks_file << std::endl;
         std::cout << "*";
     }
+    int record = 0;
+    for (int j = 1; j <= length; j++)                                                                                   // log non-unique counters
+        if (g_max_tails[j] > record) {
+            record = g_max_tails[j];
+            if (g_generators_counter[j] > 1)
+                ranks_file << "Found non-unique generator: " << j << " with frequency " << g_generators_counter[j] << "!\n";
+        }
     ranks_file.close();
     write_results(g_max_tails, g_best_generators);          // write final results to file
-    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);     // report termination to master
+    MPI_Send(&rank, 1, MPI_INT, 0, 11, MPI_COMM_WORLD);     // report termination to master
     std::cout << "\nResults logger: finished.\n";           // terminate logger
 }
 
@@ -472,7 +488,8 @@ void worker(const int rank, const int np) {
     MPI_Send(&rank, 1, MPI_INT, 2, 6, MPI_COMM_WORLD);                                                      // send rank number to results logger
     MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 7, MPI_COMM_WORLD);                                 // send maximum tails of this worker
     MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 8, MPI_COMM_WORLD);         // send best generators of this worker
-    MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 2, 9, MPI_COMM_WORLD);                               // send last values of this worker
+    MPI_Send(&ctx.generators_counter[0], length + 1, MPI_INT, 2, 9, MPI_COMM_WORLD);                        // send counters for found records
+    MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 2, 10, MPI_COMM_WORLD);                              // send last values of this worker
 }
 
 int main(int argc, char *argv[])
