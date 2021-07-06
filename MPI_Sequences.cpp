@@ -1,6 +1,6 @@
 // Made by Steven Boonstoppel, with crucial speed improvements thanks to Vladimir Feinstein, algorithm by Levi van de Pol
 // First version: 18-11-2020; estimated time to length 48: 250 years*
-// Current version: 01-07-2021; completed time to length 48: 50 milliseconds*
+// Current version: 06-07-2021; completed time to length 48: 50 milliseconds*
 // * reference CPU: AMD Ryzen 7 3800X, 16 threads @ ~4.2 GHz boost, GCC GNU compiler
 
 #include <iostream>
@@ -9,30 +9,28 @@
 #include <vector>
 #include <map>
 #include <unordered_map>
-#include <unordered_set>
 #include <cstring>
 #include <algorithm>
 #include <mpi.h>
 
 #define INLINING inline __attribute__((always_inline))
-
 typedef std::vector<int16_t> v16_t;
-std::ofstream results_file;
-std::ofstream ranks_file;
-std::ofstream log_file;
 
-const int length = 100;
+const int length = 120;     // Tweakable parameter: set this to the desired generator length (n)
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
-const int interval = 1000; 	// Tweakable parameter: set this to the desired interval between log ticks
+const int interval = 1000;  // Tweakable parameter: set this to the desired interval between log ticks
+const int max_np = 800;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
+
+std::ofstream log_file, ranks_file, results_file;
 
 struct context {                                            // all necessary variables for a rank;
     int c_cand = 0, p_cand = 0, depth = 1, max_tails[length + 1] = { 0 };
     v16_t seq = v16_t(length), seq_new, periods, pairs, temp;
     int16_t best_generators[length + 1][length] = { 0 };
     std::map<int16_t, v16_t> generators_memory;
-    std::unordered_set<int16_t> change_indices = { 0 };
-    std::array<std::vector<int>, 2 * length + 2> seq_map;   // adjust for + 1 index on positive and negative side
+    v16_t change_indices = { 0 };
+    std::array<std::vector<int>, length> seq_map;       // adjust for + 1 index on positive and negative side
 };
 
 std::unordered_map<int, int> expected_tails = {             // the record tail lengths we found so far
@@ -41,6 +39,16 @@ std::unordered_map<int, int> expected_tails = {             // the record tail l
     {133, 342}, {149, 343}, {154, 356}, {176, 406}, {197, 1668}, {199, 1669}, {200, 1670}, {208, 1708}, {217, 1836}, {290, 3382}
 };
 
+// erase element from vector
+void erase(std::vector<int>& v, int x) {
+    int i = 0;
+    while (v[i] != x)       // find requested element
+        ++i;
+    v[i] = v.back();        // move to last value
+    v.pop_back();           // remove (now duplicated) last value
+}
+
+// specialized compare function using pointers
 bool diff(const int16_t* p1, const int16_t* p2, int count) {
     int count64 = count / 4;    // compare four 16-bit ints in uint64_t simultaneously
     if (count64) {
@@ -84,13 +92,11 @@ int krul(const v16_t& s, int& period, int l, int minimum) {
     return curl;
 }
 
-// erase element from vector
-void erase(std::vector<int>& v, int x) {
+// find the shortest generator that could have generated current tail
+int real_generator_length(context& ctx) {
     int i = 0;
-    while (v[i] != x)
-        ++i;
-    v[i] = v.back();        // use last value
-    v.pop_back();           // remove (now duplicated) last value
+    while ((ctx.seq[i] == (-length + i)) && (++i != length)) {}
+    return (length - i);
 }
 
 INLINING // modify the candidate(s) and maybe the sequence to try and maximize the tail length
@@ -101,37 +107,30 @@ void up(context& ctx) {
             break;
         if ((ctx.c_cand * ctx.p_cand) <= ctx.seq.size())                    // if this pair is within sequence size, we can break and try that instead
             break;
-        if (ctx.c_cand > ctx.seq.back()) {                                  // if curl > last_curl, the sequence will have to change to become longer
-            int16_t k = (int16_t)ctx.periods.size() - 1;                    // we will have to change the for-last curl in order to change the tail, 
-            auto index = ctx.change_indices.find(k);                        // so let's check whether it has been done yet
-            if (index == ctx.change_indices.end()) {                        // didn't find it?
-                ctx.change_indices.insert(k);                               // insert it and let's try increased curl with new period
-                ctx.c_cand = ctx.seq.back() + 1;
-                ctx.p_cand = 1 + k / ctx.c_cand;
-            }
-            else {                                                          // did find it?
-                ctx.c_cand = ctx.seq.back();                                // let's try this same curl but now with one higher period
+        if (ctx.c_cand > ctx.seq.back()) {                                  // if curl > last_curl, then raising curl with 1 would give curl > last_curl + 1.  
+            int16_t k = (int16_t)ctx.periods.size() - 1;                    // due to a mathematical argument, this will give no solutions; therefore, the sequence will have to change to become longer.
+            if (ctx.change_indices.back() == k + 1)                         // delete the current entry from change_indices if it was present
+                ctx.change_indices.pop_back();    
+            if (ctx.change_indices.back() == k) {                           // we will have to change the for-last curl in order to change the tail, so let's check whether it has been done yet                   
+                ctx.c_cand = ctx.seq.back();                                // found it? let's try this same curl but now with one higher period
                 ctx.p_cand = ctx.periods.back() + 1;
-
                 v16_t& temp = ctx.generators_memory[k];                     // retrieve generator from memory
-                for (int i = 0; i < length; i++) {
+                for (int i = 0; i < length; i++)
                     if (ctx.seq[i] != temp[i]) {                            // check where the differences are, apply them, and change map accordingly
-                        erase(ctx.seq_map[ctx.seq[i] + length], i);
+                        if (ctx.seq[i] < 0)
+                            erase(ctx.seq_map[ctx.seq[i] + length], i);
                         ctx.seq_map[temp[i] + length].push_back(i);
                         ctx.seq[i] = temp[i];
                     }
-                }
                 ctx.generators_memory.erase(k);                             // and delete memory entry
             }
-
-            auto ind = std::find(ctx.seq_map[ctx.seq.back() + length].begin(), ctx.seq_map[ctx.seq.back() + length].end(), ctx.seq.size() - 1);
-            ctx.seq_map[ctx.seq.back() + length].erase(ind);                // delete the last curl, period and index from their vectors
+            else {                                                          // didn't find it? then using a mathematical argument, we can skip a number of cases. 
+                ctx.change_indices.push_back(k);                            // insert that index and let's try increased curl with matching period
+                ctx.c_cand = ctx.seq.back() + 1;
+                ctx.p_cand = 1 + k / ctx.c_cand;
+            }
             ctx.seq.pop_back();
             ctx.periods.pop_back();
-
-            index = ctx.change_indices.find(k + 1);
-            if (index != ctx.change_indices.end())
-                ctx.change_indices.erase(index);
         }
         else {
             ++ctx.c_cand;                                                   // if not, we increase the curl to try and calculate its period
@@ -140,18 +139,12 @@ void up(context& ctx) {
     }
 }
 
-// find the shortest generator that could have generated this tail
-int real_generator_length(context& ctx) {
-    int i = 0;
-    while ((ctx.seq[i] == (-length + i)) && (++i != length)) {}
-    return (length - i);
-}
-
 INLINING // construct the tail for this generator
 void append(context& ctx) {
-    for (int i = 0; i < ctx.pairs.size(); i += 2) {             // NOW we are sure we passed test_1 and test_2, so it is time to update the map
-        for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
-            ctx.seq_map[ctx.pairs[i] + length].push_back(x);    // so we move all changed values to their new location
+    for (int i = 0; i < ctx.pairs.size(); i += 2) {             // now we are sure we passed test_1 and test_2, so it is time to update the map
+        if (ctx.pairs[i] < 0)
+            for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
+                ctx.seq_map[ctx.pairs[i] + length].push_back(x);// so we move all changed values to their new location
         ctx.seq_map[ctx.pairs[i + 1] + length].clear();         // and delete their previous entries
     }
     ctx.seq.resize(length);                                     // discard the tail so we can swap it into the memory
@@ -160,13 +153,11 @@ void append(context& ctx) {
     ctx.seq.push_back((int16_t)ctx.c_cand);                     // add the candidates because we passed test_1 and test_2
     ctx.periods.push_back((int16_t)ctx.p_cand);
     int seq_size = (int)ctx.seq.size();
-    ctx.seq_map[ctx.c_cand + length].push_back(seq_size - 1);
     int period = 0;
     while (true) {                                              // build the tail for this generator
         int curl = krul(ctx.seq, period, seq_size, 2);
         if (curl == 1)
             break;
-        ctx.seq_map[curl + length].push_back(seq_size);
         ctx.seq.push_back((int16_t)curl);
         ++seq_size;
         ctx.periods.push_back((int16_t)period);
@@ -175,7 +166,7 @@ void append(context& ctx) {
     int tail = (int)ctx.periods.size();                         // find tail size (seq.size() - length)
     ctx.c_cand = 2;                                             // prepare candidates for next backtracking_step
     ctx.p_cand = 1 + tail / 2;
-    ctx.change_indices.insert((int16_t)tail);                   // to improve generator, we would have to take note of the index where the 1 occured
+    ctx.change_indices.push_back((int16_t)tail);                   // to improve generator, we would have to take note of the index where the 1 occured
     int len = real_generator_length(ctx);                       // retrieve actual generator length
     if (ctx.max_tails[len] < (int16_t)tail) {                   // and update maximum values for this thread
         ctx.max_tails[len] = (int16_t)tail;
@@ -190,10 +181,9 @@ bool test_1(context& ctx) {
     int limit = (ctx.c_cand - 1) * ctx.p_cand;                  // limit to which to check for repetition
     int16_t* p1 = &ctx.seq[l];
     int16_t* p2 = &ctx.seq[lcp];
-    for (int i = 0; i < limit; ++i, --p1, --p2) {
+    for (int i = 0; i < limit; ++i, --p1, --p2)
         if (*p1 != *p2 and (*p1 | *p2) > 0)                     // check whether the repetition may be possible
             return false;
-    }
     ctx.seq_new = ctx.seq;                                      // create dummy sequence
     ctx.pairs.clear();
     int pairs_size = 0;
@@ -248,17 +238,18 @@ bool test_2(context& ctx) {
 
 INLINING // set a new step in the backtracking algorithm
 void backtracking_step(context& ctx) {
-    if (test_1(ctx) && test_2(ctx)) // depending on whether the sequence will improve the tail length...
-        append(ctx);                // we make the tail longer if it passed the checks
+    if (test_1(ctx) && test_2(ctx))     // depending on whether the sequence will improve the tail length...
+        append(ctx);                    // we make the tail longer if it passed the checks
     else
-        up(ctx);                    // or we upgrade the generator if they failed
+        up(ctx);                        // or we upgrade the generator if they failed
 }
 
+// main rank
 void master(const int rank, const int np) {
     double t1 = MPI_Wtime();
     std::cout << "Master: distributing sequences...\n2";
     
-    int id, values[1 + 2 * max_depth];
+    int id, values[1 + 2 * max_depth];                                          // initiate with default values
     values[0] = max_depth;
     for (int i = 1; i <= max_depth; i++) {
         values[2 * i - 1] = 2;
@@ -266,65 +257,66 @@ void master(const int rank, const int np) {
     }
     int depth = max_depth;
     while (true) {
-        if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {       // check if we are within sequence size
-            MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified of finished rank
-            MPI_Send(&id, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);
-            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, 1, 2, MPI_COMM_WORLD);
-            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);            // send it new values
-            values[depth * 2]++;                                                // increase period by one
+        if (values[depth * 2 - 1] * values[depth * 2] < length + depth) {           // check if candidates are within sequence size
+            MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified of finished worker
+            MPI_Send(&id, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);                                    // send that ID to the logger
+            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, 1, 2, MPI_COMM_WORLD);             // as well as the values
+            MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);            // send that worker new values
+            values[depth * 2]++;                                                    // and increase period candidate by one
         }
         else {
-            values[depth * 2] = 1;                                              // if this combination of curl and period was too large, reset period
-            values[depth * 2 - 1]++;                                            // and increase curl by one
+            values[depth * 2] = 1;                                                  // if this combination of curl and period was too large, reset period
+            values[depth * 2 - 1]++;                                                // and increase curl by one
             if (depth > 1) {
-                if (values[depth * 2 - 1] > values[depth * 2 - 3] + 1) {        // curl larger than previous curl + 1? skip to next (mathematical)   
-                    values[depth * 2 - 1] = 2;                                  // reset the curl of the current depth
-                    values[depth * 2 - 2]++;                                    // and increase the period of previous depth with one
+                if (values[depth * 2 - 1] > values[depth * 2 - 3] + 1) {            // curl larger than previous curl + 1? skip to next (mathematical)   
+                    values[depth * 2 - 1] = 2;                                      // reset the curl of the current depth
+                    values[depth * 2 - 2]++;                                        // and increase the period of previous depth with one
                     if (depth == 2) 
                         std::cout << " " << values[2];
                 }
             }
             else {
-                if (values[1] > length)                                         // curl too large for sequence size?
-                    break;                                                      // then we just gave out the last set of values
+                if (values[1] > length)                                             // curl too large for sequence size?
+                    break;                                                          // then we just gave out the last set of values
                 if (values[1] <= limit) 
                     std::cout << "\b\b" << "  " << std::endl << values[1];
             }
-            int sum = values[1] * values[2];                                    // depth is at least one to get us started on the sum
-            for (depth = 1; depth < max_depth; depth++) {                       // check the (weighed) depth that matches current values
+            int sum = values[1] * values[2];                                        // depth is at least one to get us started on the sum
+            for (depth = 1; depth < max_depth; depth++) {                           // check the (weighed) depth that matches current values
                 if (sum > limit)
-                    break;                                                      // if we go over the limit, we do not do this combination
+                    break;                                                          // if we go over the limit, we do not do this combination
                 int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
-                sum += next;                                                    // otherwise, we accept this depth
+                sum += next;                                                        // otherwise, we accept this depth
             }
-            values[0] = depth;                                                  // store the current depth
+            values[0] = depth;                                                      // store the current depth
         }
     }
     std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers." << std::endl;
     values[0] = 0;
     for (int i = 3; i < np; i++) {
-        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a rank has finished
-        MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);                                        // send it terminating values
+        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified that a worker has finished
+        MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);            // send it terminating values
     }
-    MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);
-    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);
-    MPI_Recv(&id, 1, MPI_INT, 1, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv(&id, 1, MPI_INT, 2, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);                              // terminate value logger
+    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);                              // initiate final results logging and terminate logger
+    MPI_Recv(&id, 1, MPI_INT, 1, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for value logger termination
+    MPI_Recv(&id, 1, MPI_INT, 2, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for results logger termination
     std::cout << MPI_Wtime() - t1 << " seconds.\n";
-    std::cout << "Master: finished.\n";
+    std::cout << "Master: finished.\n";                                             // terminate master
 }
 
+// log the rank values to file upon interval tick
 void value_logger(const int rank, const int np) {
     int cycles = interval;
-    int id, log[8][1 + 2 * max_depth], values[1 + 2 * max_depth];
+    int id, log[max_np][1 + 2 * max_depth], values[1 + 2 * max_depth];
     while (true) {
-        MPI_Recv(&id, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // get notified of finished rank
-        if (id == 0)
+        MPI_Recv(&id, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive ID from master
+        if (id == 0)    // termination signal from master
             break;
-        MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        memcpy(&log[id][0], &values[0], sizeof(values));					// store values into log
+        MPI_Recv(&values[0], 1 + 2 * max_depth, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);  // receive values from master
+        memcpy(&log[id][0], &values[0], sizeof(values));                                            // store values into log
         cycles--;
-        if (cycles == 0) {
+        if (cycles == 0) {                                  // if we went through 'interval' cycles, write the log to file
             log_file.open("Log.txt");
             log_file << "Length: " << length << std::endl;
             for (int i = 3; i < np; i++) {
@@ -337,10 +329,11 @@ void value_logger(const int rank, const int np) {
             cycles = interval;
         }
     }
-    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);
-    std::cout << "Value logger: finished.\n";
+    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);     // report termination to master
+    std::cout << "Value logger: finished.\n";               // terminate logger
 }
 
+INLINING // write relevant results to file
 void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[length + 1][length]) {
     results_file.open("Sequences.txt");
     results_file << "Length: " << length << std::endl;
@@ -361,49 +354,49 @@ void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[
     results_file.close();
 }
 
+// log the results to file upon interval tick and termination
 void results_logger(const int rank, const int np) {
     double t1 = MPI_Wtime();
-    
     int id = 0;
     int last_values[1 * 2 * max_depth], max_tails[length + 1] = { 0 }, g_max_tails[length + 1] = { 0 };
     int16_t best_generators[length + 1][length], g_best_generators[length + 1][length];
-    
     while (true) {
-        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a rank has finished
-        if (id == 0)
+        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // receive ID from worker
+        if (id == 0)    // termination signal from master
             break;
         MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive its maximum tails
-        MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        for (int k = 0; k <= length; k++)                                                                               // update global tails
+        MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // as well as corresponding generators
+        for (int k = 0; k <= length; k++)                                                                               // update current best tails
             if (max_tails[k] > g_max_tails[k]) {
                 g_max_tails[k] = max_tails[k];
                 memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
             }
-        write_results(g_max_tails, g_best_generators);
+        write_results(g_max_tails, g_best_generators);                                                                  // write results to file
     }
     
+    // termination process
     ranks_file.open("Ranks.txt");
     ranks_file << "Length: " << length << std::endl;
     for (int i = 3; i < np; i++) {
-        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a rank has finished
+        MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                                // get notified that a worker is terminating
         MPI_Recv(&max_tails[0], length + 1, MPI_INT, id, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive its maximum tails
-        MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        for (int k = 0; k <= length; k++)                                                                               // update global tails
+        MPI_Recv(&(best_generators[0][0]), (length + 1)*length, MPI_INT16_T, id, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE); // as well as corresponding generators
+        for (int k = 0; k <= length; k++)                                                                               // update current best tails
             if (max_tails[k] > g_max_tails[k]) {
                 g_max_tails[k] = max_tails[k];
                 memcpy(&g_best_generators[k][0], &best_generators[k][0], sizeof(int16_t) * length);
             }
         MPI_Recv(&last_values[0], 1 + 2 * max_depth, MPI_INT, id, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                // receive its last values for logging
-        ranks_file << "Rank: " << id << ", duration: " << (MPI_Wtime() - t1) << ", " << last_values[0] << ": ";      // log rank number, duration and last values
+        ranks_file << "Rank: " << id << ", duration: " << (MPI_Wtime() - t1) << ", " << last_values[0] << ": ";         // log worker number, duration and last values
         for (int j = 1; j <= last_values[0]; j++) 
             ranks_file << "(" << last_values[j * 2 - 1] << ", " << last_values[j * 2] << "), ";
         ranks_file << std::endl;
         std::cout << "*";
     }
     ranks_file.close();
-    write_results(g_max_tails, g_best_generators);
-    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);
-    std::cout << "\nResults logger: finished.\n";
+    write_results(g_max_tails, g_best_generators);          // write final results to file
+    MPI_Send(&rank, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);     // report termination to master
+    std::cout << "\nResults logger: finished.\n";           // terminate logger
 }
 
 void worker(const int rank, const int np) {
@@ -427,17 +420,16 @@ void worker(const int rank, const int np) {
         for (int i = 0; i < length; ++i)                                    // initiate sequence
             ctx.seq[i] = (int16_t)(-length + i);
 
-        if (ctx.depth > 1) {                                                // if we use depth 2, we add the first candidates and change the sequence accordingly
+        if (ctx.depth > 1) {                                                // if we use depth 2 or higher, we add the first candidates and change the sequence accordingly
             for (int i = 2; i <= values[1]; i++)
                 memcpy(&ctx.seq[length - i * values[2]], &ctx.seq[length - values[2]], values[2] * sizeof(int16_t));
             ctx.seq.push_back((int16_t)values[1]);
-            ctx.periods.push_back((int16_t)values[2]);
-            ctx.change_indices.insert(0);
+            ctx.periods.push_back((int16_t)values[2]);                      // we don't change generators_memory or change_indices, since we won't need them for these low values of i
         }
 
         for (auto& v : ctx.seq_map)                                         // clear the map
             v.clear();
-        for (int j = 0; j < length + bool(ctx.depth - 1); ++j)              // and reconstruct
+        for (int j = 0; j < length; ++j)                                    // and reconstruct
             ctx.seq_map[ctx.seq[j] + length].push_back(j);
 
         bool next = false;
@@ -446,15 +438,15 @@ void worker(const int rank, const int np) {
             ctx.p_cand = values[i * 2 - 2];
             if (test_1(ctx) && test_2(ctx)) {
                 for (int i = 0; i < ctx.pairs.size(); i += 2) {             // now we are sure we passed test_1 and test_2, so it is time to update the map
-                    for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
-                        ctx.seq_map[ctx.pairs[i] + length].push_back(x);    // so we move all changed values to their new location
+                    if (ctx.pairs[i] < 0) {
+                        for (int x : ctx.seq_map[ctx.pairs[i + 1] + length])
+                            ctx.seq_map[ctx.pairs[i] + length].push_back(x);    // so we move all changed values to their new location
+                    }
                     ctx.seq_map[ctx.pairs[i + 1] + length].clear();         // and delete their previous entries
                 }
                 ctx.seq.swap(ctx.seq_new);                                  // retrieve the new sequence from test_2
                 ctx.seq.push_back((int16_t)ctx.c_cand);                     // add the candidates because we passed test_1 and test_2
-                ctx.periods.push_back((int16_t)ctx.p_cand);
-                ctx.seq_map[ctx.c_cand + length].push_back(length + 1);
-                ctx.change_indices.insert(i - 2);
+                ctx.periods.push_back((int16_t)ctx.p_cand);                 // we don't change generators_memory or change_indices, since we won't need them for these low values of i
             }
             else {
                 next = true;                                                // if some combination failed, skip and request new variables
@@ -471,16 +463,16 @@ void worker(const int rank, const int np) {
         
         cycles--;
         if (cycles == 0) {
-            MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);		                                        // send rank number
-            MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 4, MPI_COMM_WORLD);                         // send maximum tails in this rank
-            MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 5, MPI_COMM_WORLD); // send best generators in this rank
+            MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);                                              // send rank number to results logger
+            MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 4, MPI_COMM_WORLD);                         // send maximum tails of this worker
+            MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 5, MPI_COMM_WORLD); // send best generators of this worker
             cycles = interval;
         }
     }
-    MPI_Send(&rank, 1, MPI_INT, 2, 6, MPI_COMM_WORLD);		                                        // send rank number
-    MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 7, MPI_COMM_WORLD);                         // send maximum tails in this rank
-    MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 8, MPI_COMM_WORLD); // send best generators in this rank
-    MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 2, 9, MPI_COMM_WORLD);		                // send last values for debugging
+    MPI_Send(&rank, 1, MPI_INT, 2, 6, MPI_COMM_WORLD);                                                      // send rank number to results logger
+    MPI_Send(&ctx.max_tails[0], length + 1, MPI_INT, 2, 7, MPI_COMM_WORLD);                                 // send maximum tails of this worker
+    MPI_Send(&(ctx.best_generators[0][0]), (length + 1)*length, MPI_INT16_T, 2, 8, MPI_COMM_WORLD);         // send best generators of this worker
+    MPI_Send(&last_values, 1 + 2 * max_depth, MPI_INT, 2, 9, MPI_COMM_WORLD);                               // send last values of this worker
 }
 
 int main(int argc, char *argv[])
@@ -489,14 +481,14 @@ int main(int argc, char *argv[])
     MPI_Init (&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);   // get rank number of this process
     MPI_Comm_size(MPI_COMM_WORLD, &np);     // get total number of processes
-	
+    
     if (rank == 0)      // master rank
         master(rank, np);
-	else if (rank == 1) // values logger
+    else if (rank == 1) // values logger
         value_logger(rank, np);
-	else if (rank == 2) // results logger
+    else if (rank == 2) // results logger
         results_logger(rank, np);
-	else                // worker ranks
-	    worker(rank, np);  
+    else                // worker ranks
+        worker(rank, np);  
     MPI_Finalize();
 }
