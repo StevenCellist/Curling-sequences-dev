@@ -5,12 +5,12 @@ cd
 cd Curling-sequences-dev
 git checkout .
 git pull
-sed -i "25d" MPI_Sequences.cpp
-sed -i "24 a const int length = $1;" MPI_Sequences.cpp
-sed -i "26d" MPI_Sequences.cpp
-sed -i "25 a const int limit = $2;" MPI_Sequences.cpp
-sed -i "27d" MPI_Sequences.cpp
-sed -i "25 a const int max_depth = $3;" MPI_Sequences.cpp
+sed -i "19d" MPI_Sequences.cpp
+sed -i "18 a const int length = $1;" MPI_Sequences.cpp
+sed -i "20d" MPI_Sequences.cpp
+sed -i "19 a const int limit = $2;" MPI_Sequences.cpp
+sed -i "21d" MPI_Sequences.cpp
+sed -i "20 a const int max_depth = $3;" MPI_Sequences.cpp
 if [ "$4" = "1" ]
 then
   if [ -e MPI_Sequences.gcda ]
