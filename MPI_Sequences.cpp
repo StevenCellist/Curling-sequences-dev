@@ -297,12 +297,12 @@ void master(const int rank, const int np) {
     }
     std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers." << std::endl;
     values[0] = 0;
-    MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);                              // terminate value logger
-    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);                              // initiate final results logging and terminate logger
     for (int i = 3; i < np; i++) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified that a worker has finished
         MPI_Send(&values[0], 1 + 2 * max_depth, MPI_INT, id, 2, MPI_COMM_WORLD);            // send it terminating values
     }
+    MPI_Send(&rank, 1, MPI_INT, 1, 1, MPI_COMM_WORLD);                              // terminate value logger
+    MPI_Send(&rank, 1, MPI_INT, 2, 3, MPI_COMM_WORLD);                              // initiate final results logging and terminate logger
     MPI_Recv(&id, 1, MPI_INT, 1, 11, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for value logger termination
     MPI_Recv(&id, 1, MPI_INT, 2, 11, MPI_COMM_WORLD, MPI_STATUS_IGNORE);            // wait for results logger termination
     std::cout << MPI_Wtime() - t1 << " seconds.\n";
