@@ -19,8 +19,8 @@ typedef std::vector<int16_t> v16_t;
 const int length = 120;     // Tweakable parameter: set this to the desired generator length (n)
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
-const int interval = 10000;  // Tweakable parameter: set this to the desired interval between log ticks
-const int max_np = 1600;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
+const int interval = 5000;  // Tweakable parameter: set this to the desired interval between log ticks
+const int max_np = 1600;    // Tweakable parameter: set this to equal or more than the total number of processes in execution
 
 std::ofstream log_file, ranks_file, results_file;
 
@@ -311,7 +311,7 @@ void master(const int rank, const int np) {
 
 // log the rank values to file upon interval tick
 void value_logger(const int rank, const int np) {
-    int cycles = 10 * interval;
+    int cycles = 100 * interval;
     int id, log[max_np][1 + 2 * max_depth], values[1 + 2 * max_depth];
     while (true) {
         MPI_Recv(&id, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);                         // receive ID from master
@@ -330,7 +330,7 @@ void value_logger(const int rank, const int np) {
                 log_file << std::endl;
             }
             log_file.close();
-            cycles = 10 * interval;
+            cycles = 100 * interval;
         }
     }
     MPI_Send(&rank, 1, MPI_INT, 0, 11, MPI_COMM_WORLD);     // report termination to master
