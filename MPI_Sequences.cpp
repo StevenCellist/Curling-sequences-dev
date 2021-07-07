@@ -20,7 +20,7 @@ const int length = 120;     // Tweakable parameter: set this to the desired gene
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
 const int interval = 1000;  // Tweakable parameter: set this to the desired interval between log ticks
-const int max_np = 800;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
+const int max_np = 2000;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
 
 std::ofstream log_file, ranks_file, results_file;
 
