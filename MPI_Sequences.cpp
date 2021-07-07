@@ -20,7 +20,7 @@ const int length = 120;     // Tweakable parameter: set this to the desired gene
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
 const int interval = 10000;  // Tweakable parameter: set this to the desired interval between log ticks
-const int max_np = 2000;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
+const int max_np = 1600;     // Tweakable parameter: set this to equal or more than the total number of processes in execution
 
 std::ofstream log_file, ranks_file, results_file;
 
@@ -295,7 +295,7 @@ void master(const int rank, const int np) {
             values[0] = depth;                                                      // store the current depth
         }
     }
-    std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers." << std::endl;
+    std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers. " << (PI_Wtime() - t1 << " seconds." << std::endl;
     values[0] = 0;
     for (int i = 3; i < np; i++) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified that a worker has finished
