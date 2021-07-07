@@ -295,7 +295,7 @@ void master(const int rank, const int np) {
             values[0] = depth;                                                      // store the current depth
         }
     }
-    std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers. " << (PI_Wtime() - t1 << " seconds." << std::endl;
+    std::cout << "\b\b" << "  " << "\nMaster: terminating loggers and workers. " << MPI_Wtime() - t1 << " seconds." << std::endl;
     values[0] = 0;
     for (int i = 3; i < np; i++) {
         MPI_Recv(&id, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);    // get notified that a worker has finished
