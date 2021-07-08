@@ -356,8 +356,8 @@ void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[
             results_file << "]" << std::endl;
         }
     results_file.close();
-    ifstream ini_file {"Sequences.txt"};
-    ofstream out_file {"backup.txt"};
+    std::ifstream ini_file {"Sequences.txt"};
+    std::ofstream out_file {"backup.txt"};
     while(getline(ini_file,line))
             out_file << line << "\n";
     ini_file.close();
