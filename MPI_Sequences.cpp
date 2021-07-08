@@ -19,7 +19,7 @@ typedef std::vector<int16_t> v16_t;
 const int length = 120;     // Tweakable parameter: set this to the desired generator length (n)
 const int limit = 30;       // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, preferable)
 const int max_depth = 5;    // Tweakable parameter: increase this value if ranks do not finish simultaneously (necessary for large # of ranks, back-up case)
-const int interval = 5000;  // Tweakable parameter: set this to the desired interval between log ticks
+const int interval = 2000;  // Tweakable parameter: set this to the desired interval between log ticks
 const int max_np = 1600;    // Tweakable parameter: set this to equal or more than the total number of processes in execution
 
 std::ofstream log_file, ranks_file, results_file;
@@ -356,6 +356,12 @@ void write_results(int (&g_max_tails)[length + 1], int16_t (&g_best_generators)[
             results_file << "]" << std::endl;
         }
     results_file.close();
+    ifstream ini_file {"Sequences.txt"};
+    ofstream out_file {"backup.txt"};
+    while(getline(ini_file,line))
+            out_file << line << "\n";
+    ini_file.close();
+    out_file.close();
 }
 
 // log the results to file upon interval tick and termination
