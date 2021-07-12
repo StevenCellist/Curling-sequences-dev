@@ -285,11 +285,11 @@ void master(const int rank, const int np) {
                 if (values[1] <= limit) 
                     std::cout << "\b\b" << "  " << std::endl << values[1];
             }
-            int sum = values[1] * values[2];                                        // depth is at least one to get us started on the sum
+            int sum = values[1]**2 * values[2];                                        // depth is at least one to get us started on the sum
             for (depth = 1; depth < max_depth; depth++) {                           // check the (weighed) depth that matches current values
                 if (sum > limit)
                     break;                                                          // if we go over the limit, we do not do this combination
-                int next = (depth + 1) * values[depth * 2 + 1] * values[depth * 2 + 2];
+                int next = (depth + 1) * values[depth * 2 + 1]**2 * values[depth * 2 + 2];
                 sum += next;                                                        // otherwise, we accept this depth
             }
             values[0] = depth;                                                      // store the current depth
