@@ -2,12 +2,12 @@
 
 On curling sequences, trying to find a sequence with infinite tail length. Let's crunch some sequences!
 
-Largest generator length achieved: *n* = 345.
+Largest generator length achieved: *n* = 450.
 
 Record values:
-| *n* |&Omega;(*n*)| | *n* |&Omega;(*n*)| | *n* |&Omega;(*n*)|
-|:---:|:---:|---|:---:|:---:|---|:---:|:---:|
-|2    |2    |   |48   |131  |   |133  |342  |
+| *n* |&Omega;(*n*)| | *n* |&Omega;(*n*)| | *n* |&Omega;(*n*)| | *n* |&Omega;(*n*)|
+|:---:|:---:|---|:---:|:---:|---|:---:|:---:|---|:---:|:---:|
+|2    |2    |   |48   |131  |   |133  |342  |   |385  |3557 |
 |4    |4    |   |68   |132  |   |149  |343  |
 |6    |8    |   |73   |133  |   |154  |356  |
 |8    |58   |   |77   |173  |   |176  |406  |
